@@ -1,17 +1,38 @@
-if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then return end
-if (type(getgenv) == "function" and getgenv().jjsconfigran) or _G.jjsconfigran then return end
-if type(getgenv) == "function" then getgenv().jjsconfigran = true end
-_G.jjsconfigran = true
+local isran = false
+pcall(function()
+    if _G.jjsconfigran == true then isran = true end
+    _G.jjsconfigran = true
+end)
+pcall(function()
+    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
+    if g then
+        if g.jjsconfigran == true then isran = true end
+        g.jjsconfigran = true
+    end
+end)
+if isran then return end
+pcall(function()
+    if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then
+        isran = true
+    end
+end)
+if isran then return end
 
 enablecustomconfig = true
-if type(getgenv) == "function" and getgenv().enablecustomconfig ~= nil then
-    enablecustomconfig = getgenv().enablecustomconfig
-end
+pcall(function()
+    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
+    if g and g.enablecustomconfig ~= nil then
+        enablecustomconfig = g.enablecustomconfig
+    end
+end)
 
 customconfig = ""
-if type(getgenv) == "function" then
-    customconfig = getgenv().Config or getgenv().config or getgenv().customconfig or ""
-end
+pcall(function()
+    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
+    if g then
+        customconfig = g.Config or g.config or g.customconfig or ""
+    end
+end)
 
 local httpman = game:GetService("HttpService")
 local parsedcfg = nil
