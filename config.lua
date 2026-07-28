@@ -240,7 +240,7 @@ local fastbtnlist = {
     {"Side Dash Assist", function() return getlblparent("Side Dash Assist", function() return guis.ScreenGui.Frame.Frame:GetChildren()[3]:GetChildren()[7] end) end},
     {"Auto Block", function() return getlblparent("Auto Block", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].TextButton end) end},
     {"Auto Punish", function() return getlblparent("Auto Punish", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[7] end) end},
-    {"Auto Counter", function() return getbtntxt("  Auto", function() return guis.ScreenGui.Frame.ScrollingFrame:GetChildren()[5] end) end},
+    {"Auto Counter", function() return getlblparent("Auto Counter", function() return getbtnany("Auto Counter", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end) end) end},
     {"unnamed", function() local x = nil; pcall(function() x = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end); return x end},
     {"Locked On Players Only", function() return getlblparent("Locked On Players Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[11] end) end},
     {"Auto BlackFlash Chain Only", function() return getlblparent("Auto BlackFlash Chain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[13] end) end},
@@ -256,6 +256,7 @@ for _, item in pairs(fastbtnlist) do
 end
 
 local morenames = {
+    "Auto Counter",
     "Auto Adapt",
     "Auto Air Variant",
     "Auto Ambush",
