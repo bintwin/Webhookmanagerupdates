@@ -72,15 +72,33 @@ local function clickybtn(b)
     if not b then return end
     local wrk = false
     pcall(function()
-        for _, c in pairs(getconnections(b.MouseButton1Click)) do c:Fire(); wrk = true end
-        for _, c in pairs(getconnections(b.Activated)) do c:Fire(); wrk = true end
+        if type(getconnections) == "function" then
+            for _, c in pairs(getconnections(b.MouseButton1Click)) do pcall(function() c:Fire() end); wrk = true end
+            for _, c in pairs(getconnections(b.Activated)) do pcall(function() c:Fire() end); wrk = true end
+            for _, c in pairs(getconnections(b.MouseButton1Down)) do pcall(function() c:Fire() end); wrk = true end
+            for _, c in pairs(getconnections(b.MouseButton1Up)) do pcall(function() c:Fire() end); wrk = true end
+            for _, c in pairs(getconnections(b.TouchTap)) do pcall(function() c:Fire() end); wrk = true end
+        end
     end)
     if not wrk then
-        local px = b.AbsolutePosition.X + (b.AbsoluteSize.X / 2)
-        local py = b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2) + 36
-        vman:SendMouseButtonEvent(px, py, 0, true, game, 1)
-        task.wait(0.02)
-        vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
+        pcall(function()
+            local px = b.AbsolutePosition.X + (b.AbsoluteSize.X / 2)
+            local py = b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2) + 36
+            vman:SendMouseButtonEvent(px, py, 0, true, game, 1)
+            task.wait(0.02)
+            vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
+        end)
+        pcall(function()
+            local vu = game:GetService("VirtualUser")
+            vu:ClickButton1(Vector2.new(b.AbsolutePosition.X + (b.AbsoluteSize.X / 2), b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2)))
+        end)
+        pcall(function()
+            local px = b.AbsolutePosition.X + (b.AbsoluteSize.X / 2)
+            local py = b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2) + 36
+            vman:SendTouchEvent(0, 0, px, py)
+            task.wait(0.01)
+            vman:SendTouchEvent(0, 2, px, py)
+        end)
     end
 end
 
@@ -339,6 +357,7 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
             mouse1release()
         else
             vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
+            pcall(function() vman:SendTouchEvent(0, 0, sx, sy) end)
             task.wait(0.05)
             local lim = 0
             while dlbl.Text ~= wanttxt and lim < 100 do
@@ -346,11 +365,13 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
                 local cnum = cstr and tonumber(cstr) or 0
                 if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
                 vman:SendMouseMoveEvent(sx, sy, game)
+                pcall(function() vman:SendTouchEvent(0, 1, sx, sy) end)
                 vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
                 task.wait(0.01)
                 lim = lim + 1
             end
             vman:SendMouseButtonEvent(sx, sy, 0, false, game, 1)
+            pcall(function() vman:SendTouchEvent(0, 2, sx, sy) end)
         end
     end
     task.wait(0.05)
