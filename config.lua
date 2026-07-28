@@ -1,3 +1,5 @@
+if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then return end
+
 enablecustomconfig = true
 if type(getgenv) == "function" and getgenv().enablecustomconfig ~= nil then
     enablecustomconfig = getgenv().enablecustomconfig
