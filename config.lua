@@ -257,6 +257,23 @@ local function isbtnenabled(btn)
     return false
 end
 
+local function opentab(tname)
+    pcall(function()
+        for _, obj in pairs(guis.ScreenGui:GetDescendants()) do
+            if (obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("TextLabel")) and (obj.Name == tname or (obj:IsA("TextLabel") and obj.Text == tname) or (obj:IsA("TextButton") and obj.Text == tname)) then
+                local b = obj:IsA("TextLabel") and obj.Parent or obj
+                if b and (b:IsA("TextButton") or b:IsA("ImageButton")) then
+                    clickybtn(b)
+                    task.wait(0.25)
+                    break
+                end
+            end
+        end
+    end)
+end
+
+opentab("Combat")
+
 if chkdo("Auto Counter") then
     local cntrbtn = getbtnany("Auto Counter", function()
         return getlblparent("Auto Counter", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end)
@@ -370,19 +387,31 @@ for _, nm in pairs(morenames) do
 end
 
 local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
-    local sf = nil
-    pcall(function() sf = guis.ScreenGui.Frame.Frame:GetChildren()[4] end)
     local dfrm = nil
     local dlbl = nil
     pcall(function()
         dfrm = frmfunc()
         dlbl = lblfunc()
     end)
+    local sf = nil
+    pcall(function()
+        local curr = dfrm
+        while curr and curr ~= game do
+            if curr:IsA("ScrollingFrame") then
+                sf = curr
+                break
+            end
+            curr = curr.Parent
+        end
+    end)
+    if not sf then
+        pcall(function() sf = guis.ScreenGui.Frame.Frame:GetChildren()[4] end)
+    end
     if dfrm and sf and sf:IsA("ScrollingFrame") then
         local tgY = dfrm.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - (sf.AbsoluteWindowSize.Y / 2)
         if tgY < 0 then tgY = 0 end
         sf.CanvasPosition = Vector2.new(0, tgY)
-        task.wait(0.1)
+        task.wait(0.15)
     end
     if dfrm and dlbl then
         local sx = dfrm.AbsolutePosition.X + (dfrm.AbsoluteSize.X / 2)
