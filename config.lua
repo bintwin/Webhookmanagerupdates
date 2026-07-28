@@ -1,4 +1,7 @@
 if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then return end
+if (type(getgenv) == "function" and getgenv().jjsconfigran) or _G.jjsconfigran then return end
+if type(getgenv) == "function" then getgenv().jjsconfigran = true end
+_G.jjsconfigran = true
 
 enablecustomconfig = true
 if type(getgenv) == "function" and getgenv().enablecustomconfig ~= nil then
@@ -236,12 +239,41 @@ if chkdo("M1 Assist") then
     task.wait(0.02)
 end
 
+local function isbtnenabled(btn)
+    if not btn then return false end
+    local checkcol = function(c)
+        if not c then return false end
+        local r = math.floor(c.R * 255 + 0.5)
+        local g = math.floor(c.G * 255 + 0.5)
+        local b = math.floor(c.B * 255 + 0.5)
+        return (g == 170 and b == 127) or (g > 150 and b > 100 and r < 50)
+    end
+    if checkcol(btn.BackgroundColor3) then return true end
+    for _, ch in pairs(btn:GetChildren()) do
+        if ch:IsA("Frame") and checkcol(ch.BackgroundColor3) then
+            return true
+        end
+    end
+    return false
+end
+
+if chkdo("Auto Counter") then
+    local cntrbtn = getbtnany("Auto Counter", function()
+        return getlblparent("Auto Counter", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end)
+    end)
+    if not cntrbtn then
+        pcall(function() cntrbtn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end)
+    end
+    if cntrbtn and not isbtnenabled(cntrbtn) then
+        clickybtn(cntrbtn)
+        task.wait(0.05)
+    end
+end
+
 local fastbtnlist = {
     {"Side Dash Assist", function() return getlblparent("Side Dash Assist", function() return guis.ScreenGui.Frame.Frame:GetChildren()[3]:GetChildren()[7] end) end},
     {"Auto Block", function() return getlblparent("Auto Block", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].TextButton end) end},
     {"Auto Punish", function() return getlblparent("Auto Punish", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[7] end) end},
-    {"Auto Counter", function() return getlblparent("Auto Counter", function() return getbtnany("Auto Counter", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end) end) end},
-    {"unnamed", function() local x = nil; pcall(function() x = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end); return x end},
     {"Locked On Players Only", function() return getlblparent("Locked On Players Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[11] end) end},
     {"Auto BlackFlash Chain Only", function() return getlblparent("Auto BlackFlash Chain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[13] end) end},
     {"Auto QTE Minigame Click Only", function() return getlblparent("Auto QTE Minigame Click Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[18] end) end},
@@ -250,8 +282,11 @@ local fastbtnlist = {
 
 for _, item in pairs(fastbtnlist) do
     if chkdo(item[1]) then
-        clickybtn(item[2]())
-        task.wait(0.02)
+        local btn = item[2]()
+        if btn and not isbtnenabled(btn) then
+            clickybtn(btn)
+            task.wait(0.02)
+        end
     end
 end
 
@@ -326,8 +361,11 @@ local morenames = {
 
 for _, nm in pairs(morenames) do
     if chkdo(nm) then
-        clickybtn(getbtnany(nm, function() return getlblparent(nm, function() return nil end) end))
-        task.wait(0.02)
+        local btn = getbtnany(nm, function() return getlblparent(nm, function() return nil end) end)
+        if btn and not isbtnenabled(btn) then
+            clickybtn(btn)
+            task.wait(0.02)
+        end
     end
 end
 
