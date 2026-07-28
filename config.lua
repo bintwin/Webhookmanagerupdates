@@ -257,22 +257,29 @@ local function isbtnenabled(btn)
     return false
 end
 
-local function opentab(tname)
+local function opentab(tname, idxfallback)
     pcall(function()
-        for _, obj in pairs(guis.ScreenGui:GetDescendants()) do
-            if (obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("TextLabel")) and (obj.Name == tname or (obj:IsA("TextLabel") and obj.Text == tname) or (obj:IsA("TextButton") and obj.Text == tname)) then
+        local wrk = false
+        for _, obj in pairs(guis.ScreenGui.Frame.ScrollingFrame:GetDescendants()) do
+            if (obj:IsA("TextButton") or obj:IsA("TextLabel")) and (string.find(obj.Text, tname) or obj.Name == tname) then
                 local b = obj:IsA("TextLabel") and obj.Parent or obj
                 if b and (b:IsA("TextButton") or b:IsA("ImageButton")) then
                     clickybtn(b)
-                    task.wait(0.25)
+                    wrk = true
                     break
                 end
             end
         end
+        if not wrk and idxfallback then
+            pcall(function()
+                clickybtn(guis.ScreenGui.Frame.ScrollingFrame:GetChildren()[idxfallback])
+            end)
+        end
+        task.wait(0.25)
     end)
 end
 
-opentab("Combat")
+opentab("Auto", 5)
 
 if chkdo("Auto Counter") then
     local cntrbtn = getbtnany("Auto Counter", function()
@@ -454,6 +461,7 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     task.wait(0.05)
 end
 
+opentab("Auto", 5)
 local blkrange = getcfgnum("Auto Block Range", 19)
 fastslider(
     function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
