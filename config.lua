@@ -1,0 +1,381 @@
+enablecustomconfig = true
+if type(getgenv) == "function" and getgenv().enablecustomconfig ~= nil then
+    enablecustomconfig = getgenv().enablecustomconfig
+end
+
+customconfig = ""
+if type(getgenv) == "function" then
+    customconfig = getgenv().Config or getgenv().config or getgenv().customconfig or ""
+end
+
+local httpman = game:GetService("HttpService")
+local parsedcfg = nil
+if enablecustomconfig then
+    pcall(function()
+        local dec = httpman:JSONDecode(customconfig)
+        if dec and dec.CONFIG then
+            parsedcfg = dec.CONFIG
+        else
+            parsedcfg = dec
+        end
+    end)
+end
+
+local function chkdo(nm)
+    if not enablecustomconfig or not parsedcfg then return true end
+    if parsedcfg[nm] ~= nil then
+        return parsedcfg[nm] == true
+    end
+    local clean = string.gsub(nm, " Only$", "")
+    if parsedcfg[clean] ~= nil then
+        return parsedcfg[clean] == true
+    end
+    for k, v in pairs(parsedcfg) do
+        if string.lower(k) == string.lower(nm) or string.lower(k) == string.lower(clean) then
+            return v == true
+        end
+    end
+    return false
+end
+
+local function getcfgnum(nm, defnum)
+    if not enablecustomconfig or not parsedcfg then return defnum end
+    if type(parsedcfg[nm]) == "number" then return parsedcfg[nm] end
+    for k, v in pairs(parsedcfg) do
+        if string.lower(k) == string.lower(nm) and type(v) == "number" then
+            return v
+        end
+    end
+    return defnum
+end
+
+local function chklockmethod(mname)
+    if not enablecustomconfig or not parsedcfg then return true end
+    local lm = parsedcfg["Lock On Method"]
+    if type(lm) == "table" then
+        for _, v in pairs(lm) do
+            if string.lower(tostring(v)) == string.lower(mname) then
+                return true
+            end
+        end
+        return false
+    end
+    return false
+end
+
+local playerstuff = game:GetService("Players")
+local localboy = playerstuff.LocalPlayer
+local guis = localboy.PlayerGui
+local vman = game:GetService("VirtualInputManager")
+
+local function clickybtn(b)
+    if not b then return end
+    local wrk = false
+    pcall(function()
+        for _, c in pairs(getconnections(b.MouseButton1Click)) do c:Fire(); wrk = true end
+        for _, c in pairs(getconnections(b.Activated)) do c:Fire(); wrk = true end
+    end)
+    if not wrk then
+        local px = b.AbsolutePosition.X + (b.AbsoluteSize.X / 2)
+        local py = b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2) + 36
+        vman:SendMouseButtonEvent(px, py, 0, true, game, 1)
+        task.wait(0.02)
+        vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
+    end
+end
+
+local function getlblparent(txt, fbackfunc)
+    for _, obj in pairs(guis:GetDescendants()) do
+        if obj:IsA("TextLabel") and obj.Text == txt then
+            return obj.Parent
+        end
+    end
+    local f = nil
+    pcall(function() f = fbackfunc() end)
+    return f
+end
+
+local function getbtntxt(txt, fbackfunc)
+    for _, obj in pairs(guis:GetDescendants()) do
+        if (obj:IsA("TextButton") or obj:IsA("TextLabel")) and obj.Text == txt then
+            if obj:IsA("TextLabel") then return obj.Parent else return obj end
+        end
+    end
+    local f = nil
+    pcall(function() f = fbackfunc() end)
+    return f
+end
+
+local function getbtnany(nm, fbackfunc)
+    for _, obj in pairs(guis:GetDescendants()) do
+        if obj:IsA("TextLabel") and obj.Text == nm then
+            if obj.Parent and (obj.Parent:IsA("TextButton") or obj.Parent:IsA("ImageButton") or obj.Parent:IsA("Frame")) then
+                return obj.Parent
+            end
+        end
+        if obj:IsA("TextButton") and (obj.Text == nm or obj.Name == nm) then
+            return obj
+        end
+        if obj:IsA("ImageButton") and obj.Name == nm then
+            return obj
+        end
+    end
+    local f = nil
+    pcall(function() f = fbackfunc() end)
+    return f
+end
+
+local guiready = false
+local attempts = 0
+while not guiready and attempts < 120 do
+    pcall(function()
+        if guis.ScreenGui.Frame.Frame.ScrollingFrame then
+            guiready = true
+        end
+    end)
+    if guiready then break end
+    attempts = attempts + 1
+    task.wait(1)
+end
+
+if not guiready then return end
+
+pcall(function()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Config Loader",
+        Text = "Config loading started",
+        Duration = 4
+    })
+end)
+task.wait(4)
+
+if chkdo("Lock On") then
+    local b1 = getbtntxt("Lock On Keybind: F", function() return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[15] end)
+    clickybtn(b1)
+    task.wait(0.05)
+    local keytohit = Enum.KeyCode.C
+    if enablecustomconfig and parsedcfg and parsedcfg["Lock On Keybind"] then
+        pcall(function()
+            keytohit = Enum.KeyCode[tostring(parsedcfg["Lock On Keybind"])]
+        end)
+    end
+    vman:SendKeyEvent(true, keytohit, false, game)
+    task.wait(0.02)
+    vman:SendKeyEvent(false, keytohit, false, game)
+    task.wait(0.05)
+end
+
+if chklockmethod("Character") then
+    local charbtn = getbtnany("Character", function()
+        for _, ch in pairs(guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[13].Frame.ScrollingFrame:GetChildren()) do
+            if ch:IsA("TextButton") and (ch.Name == "Character" or ch.Text == "Character") then return ch end
+        end
+        return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[13].Frame.ScrollingFrame:GetChildren()[3]
+    end)
+    clickybtn(charbtn)
+    task.wait(0.15)
+end
+
+if not chklockmethod("Camera") then
+    local cambtn = getbtnany("Camera", function()
+        for _, ch in pairs(guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[13].Frame.ScrollingFrame:GetChildren()) do
+            if ch:IsA("TextButton") and (ch.Name == "Camera" or ch.Text == "Camera") then return ch end
+        end
+        return nil
+    end)
+    clickybtn(cambtn)
+    task.wait(0.1)
+end
+
+if chkdo("Unlock Extra Emote slot") then
+    local emotebtn = getlblparent("Unlock Extra Emote Slot", function() return guis.ScreenGui.Frame.Frame:GetChildren()[7]:GetChildren()[25] end)
+    if not emotebtn then
+        pcall(function() emotebtn = guis.ScreenGui.Frame.Frame:GetChildren()[7]:GetChildren()[25] end)
+    end
+    clickybtn(emotebtn)
+    task.wait(0.05)
+end
+
+if chkdo("M1 Assist") then
+    local m1btn = getlblparent("M1 Assist Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[22] end)
+    if not m1btn then m1btn = getbtntxt("M1 Assist", function() return nil end) end
+    clickybtn(m1btn)
+    task.wait(0.02)
+    local m1m = "UpperCut"
+    if enablecustomconfig and parsedcfg and parsedcfg["M1 Method"] then
+        m1m = tostring(parsedcfg["M1 Method"])
+    end
+    clickybtn(getbtnany(m1m, function() return nil end))
+    task.wait(0.02)
+end
+
+local fastbtnlist = {
+    {"Side Dash Assist", function() return getlblparent("Side Dash Assist", function() return guis.ScreenGui.Frame.Frame:GetChildren()[3]:GetChildren()[7] end) end},
+    {"Auto Block", function() return getlblparent("Auto Block", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].TextButton end) end},
+    {"Auto Punish", function() return getlblparent("Auto Punish", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[7] end) end},
+    {"Auto Counter", function() return getbtntxt("  Auto", function() return guis.ScreenGui.Frame.ScrollingFrame:GetChildren()[5] end) end},
+    {"unnamed", function() local x = nil; pcall(function() x = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end); return x end},
+    {"Locked On Players Only", function() return getlblparent("Locked On Players Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[11] end) end},
+    {"Auto BlackFlash Chain Only", function() return getlblparent("Auto BlackFlash Chain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[13] end) end},
+    {"Auto QTE Minigame Click Only", function() return getlblparent("Auto QTE Minigame Click Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[18] end) end},
+    {"Auto Hiromi Guess Domain Only", function() return getlblparent("Auto Hiromi Guess Domain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[20] end) end}
+}
+
+for _, item in pairs(fastbtnlist) do
+    if chkdo(item[1]) then
+        clickybtn(item[2]())
+        task.wait(0.02)
+    end
+end
+
+local morenames = {
+    "Auto Adapt",
+    "Auto Air Variant",
+    "Auto Ambush",
+    "Auto BlackFlash V2 100% accuracy (yuji only)",
+    "Auto Blackflash",
+    "Auto Block/Counter",
+    "Auto Burst",
+    "Auto Earth Quake",
+    "Auto Feint",
+    "Auto Frog variant",
+    "Auto Garuda Rebound",
+    "Auto Legit",
+    "Auto Lock On",
+    "Auto Lock On When You",
+    "Auto Naoya Tech",
+    "Auto Nue variant",
+    "Auto Parkour",
+    "Auto Perfect Swap",
+    "Auto Pick Up",
+    "Auto Play",
+    "Auto Play On Kill",
+    "Auto Ratio",
+    "Auto Reversal Red Teleport",
+    "Auto ShutUp",
+    "Auto Spawn Train",
+    "Auto Swap Players",
+    "Auto Todo BlackFlash",
+    "Auto Todo Blackflash",
+    "Auto Variants",
+    "Auto World Slash",
+    "Auto Yuta BlackFlash",
+    "Auto Yuta Teleport Kill Backflash",
+    "Auto Yuta Teleport Kill Blackflash",
+    "Aim Assist",
+    "Anti BlackHole",
+    "Anti Build Lag",
+    "Anti Counter",
+    "Anti Domain",
+    "Anti Domain Method",
+    "Anti Kill",
+    "Anti Ragdoll",
+    "Anti Stun",
+    "Anti Stun Methods",
+    "Combat Defense",
+    "Domain Check",
+    "Hit And Tp Back",
+    "Hitbox (Only Works On Some Movements)",
+    "Instant Blackhole",
+    "Invisibility",
+    "KnockBackForce",
+    "No Parkour Cooldown",
+    "NoJump",
+    "NoSprint",
+    "Safe Place",
+    "Silent animations",
+    "Spam dash noises",
+    "Spawn Train Button",
+    "Stun",
+    "Todo Bring (Swift Kick)",
+    "Walk into Domains",
+    "Yuki Instant Charge",
+    "Gojo 0.2 domain Kill All",
+    "Set Low Hp",
+    "Bird Control",
+    "Cooldown Viewer"
+}
+
+for _, nm in pairs(morenames) do
+    if chkdo(nm) then
+        clickybtn(getbtnany(nm, function() return getlblparent(nm, function() return nil end) end))
+        task.wait(0.02)
+    end
+end
+
+local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
+    local sf = nil
+    pcall(function() sf = guis.ScreenGui.Frame.Frame:GetChildren()[4] end)
+    local dfrm = nil
+    local dlbl = nil
+    pcall(function()
+        dfrm = frmfunc()
+        dlbl = lblfunc()
+    end)
+    if dfrm and sf and sf:IsA("ScrollingFrame") then
+        local tgY = dfrm.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - (sf.AbsoluteWindowSize.Y / 2)
+        if tgY < 0 then tgY = 0 end
+        sf.CanvasPosition = Vector2.new(0, tgY)
+        task.wait(0.1)
+    end
+    if dfrm and dlbl then
+        local sx = dfrm.AbsolutePosition.X + (dfrm.AbsoluteSize.X / 2)
+        local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + 66
+        if mousemoveabs and mouse1press and mouse1release then
+            mousemoveabs(sx, sy)
+            task.wait(0.05)
+            mouse1press()
+            task.wait(0.05)
+            local lim = 0
+            while dlbl.Text ~= wanttxt and lim < 100 do
+                local cstr = string.match(dlbl.Text, "%d+")
+                local cnum = cstr and tonumber(cstr) or 0
+                if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
+                mousemoveabs(sx, sy)
+                mouse1press()
+                task.wait(0.01)
+                lim = lim + 1
+            end
+            mouse1release()
+        else
+            vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
+            task.wait(0.05)
+            local lim = 0
+            while dlbl.Text ~= wanttxt and lim < 100 do
+                local cstr = string.match(dlbl.Text, "%d+")
+                local cnum = cstr and tonumber(cstr) or 0
+                if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
+                vman:SendMouseMoveEvent(sx, sy, game)
+                vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
+                task.wait(0.01)
+                lim = lim + 1
+            end
+            vman:SendMouseButtonEvent(sx, sy, 0, false, game, 1)
+        end
+    end
+    task.wait(0.05)
+end
+
+local blkrange = getcfgnum("Auto Block Range", 19)
+fastslider(
+    function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
+    function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
+    "Auto Block Range: " .. tostring(blkrange),
+    blkrange
+)
+
+local cntrrange = getcfgnum("Auto Counter Range", 4)
+fastslider(
+    function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
+    function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
+    "Auto Counter Range: " .. tostring(cntrrange),
+    cntrrange
+)
+
+local dlyval = getcfgnum("Click Delay", 16)
+fastslider(
+    function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
+    function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
+    "Click Delay: " .. tostring(dlyval),
+    dlyval
+)
