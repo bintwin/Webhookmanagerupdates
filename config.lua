@@ -168,6 +168,13 @@ end)
 task.wait(4)
 
 if chkdo("Lock On") then
+    local lockbtn = getbtnany("Lock On", function()
+        return getlblparent("Lock On", function() return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[14] end)
+    end)
+    if lockbtn then
+        clickybtn(lockbtn)
+        task.wait(0.05)
+    end
     local b1 = getbtntxt("Lock On Keybind: F", function() return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[15] end)
     clickybtn(b1)
     task.wait(0.05)
