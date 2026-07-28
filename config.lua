@@ -260,14 +260,11 @@ end
 local function opentab(tname, idxfallback)
     pcall(function()
         local wrk = false
-        for _, obj in pairs(guis.ScreenGui.Frame.ScrollingFrame:GetDescendants()) do
-            if (obj:IsA("TextButton") or obj:IsA("TextLabel")) and (string.find(obj.Text, tname) or obj.Name == tname) then
-                local b = obj:IsA("TextLabel") and obj.Parent or obj
-                if b and (b:IsA("TextButton") or b:IsA("ImageButton")) then
-                    clickybtn(b)
-                    wrk = true
-                    break
-                end
+        for _, obj in pairs(guis.ScreenGui.Frame.ScrollingFrame:GetChildren()) do
+            if (obj:IsA("TextButton") or obj:IsA("TextLabel")) and (obj.Text == "  " .. tname or obj.Text == tname or string.find(obj.Text, tname) or obj.Name == tname) then
+                clickybtn(obj)
+                wrk = true
+                break
             end
         end
         if not wrk and idxfallback then
@@ -275,7 +272,7 @@ local function opentab(tname, idxfallback)
                 clickybtn(guis.ScreenGui.Frame.ScrollingFrame:GetChildren()[idxfallback])
             end)
         end
-        task.wait(0.25)
+        task.wait(0.35)
     end)
 end
 
