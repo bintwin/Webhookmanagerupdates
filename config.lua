@@ -478,6 +478,12 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY
 
     local function tapAt(tx)
+        pcall(function()
+            if mousemoveabs then
+                mousemoveabs(tx, sy)
+                task.wait(0.02)
+            end
+        end)
         vman:SendMouseButtonEvent(tx, sy, 0, true, game, 1)
         task.wait(0.015)
         vman:SendMouseMoveEvent(tx, sy, game)
