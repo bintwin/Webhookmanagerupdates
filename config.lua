@@ -1,46 +1,30 @@
-local isran = false
+local env = _G
 pcall(function()
-    if _G.jjsconfigran == true then isran = true end
-    _G.jjsconfigran = true
-end)
-pcall(function()
-    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
-    if g then
-        if g.jjsconfigran == true then isran = true end
-        g.jjsconfigran = true
-    end
-end)
-if isran then return end
-pcall(function()
-    if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then
-        isran = true
-    end
-end)
-if isran then return end
-
-enablecustomconfig = true
-pcall(function()
-    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
-    if g and g.enablecustomconfig ~= nil then
-        enablecustomconfig = g.enablecustomconfig
+    if type(getgenv) == "function" then
+        local fetched = getgenv()
+        if type(fetched) == "table" then
+            env = fetched
+        end
+    elseif type(getgenv) == "table" then
+        env = getgenv
     end
 end)
 
-premium_mode = false
-pcall(function()
-    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
-    if g and g.premium_mode ~= nil then
-        premium_mode = g.premium_mode
-    end
-end)
+if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then
+    return
+end
 
-customconfig = ""
-pcall(function()
-    local g = (type(getgenv) == "function" and getgenv()) or (type(getgenv) == "table" and getgenv())
-    if g then
-        customconfig = g.Config or g.config or g.customconfig or ""
-    end
-end)
+local enablecustomconfig = env.enablecustomconfig
+if enablecustomconfig == nil then
+    enablecustomconfig = true
+end
+
+local premiumvalue = env.premium_mode
+local premium_mode = premiumvalue == true
+    or premiumvalue == 1
+    or string.lower(tostring(premiumvalue)) == "true"
+
+local customconfig = env.Config or env.config or env.customconfig or ""
 
 local httpman = game:GetService("HttpService")
 local parsedcfg = nil
@@ -263,7 +247,7 @@ if not guiready then return end
 pcall(function()
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "Config Loader",
-        Text = "Config loading started",
+        Text = premium_mode and "Premium paths selected" or "Free paths selected",
         Duration = 4
     })
 end)
@@ -324,12 +308,17 @@ if chkdo("Unlock Extra Emote slot") then
 end
 
 if chkdo("M1 Assist") then
-    local m1btn = getlblparent("M1 Assist Only", function()
+    local m1btn = nil
+    pcall(function()
         if premium_mode then
-            return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[22]
+            m1btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[22]
+        else
+            m1btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[17]
         end
-        return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[17]
     end)
+    if not m1btn then
+        m1btn = getlblparent("M1 Assist Only", function() return nil end)
+    end
     if not m1btn then m1btn = getbtntxt("M1 Assist", function() return nil end) end
     clickybtn(m1btn)
     task.wait(0.02)
@@ -400,20 +389,26 @@ local fastbtnlist = {
     {"Locked On Players Only", function() return getlblparent("Locked On Players Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[11] end) end},
     {"Auto BlackFlash Chain Only", function() return getlblparent("Auto BlackFlash Chain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[13] end) end},
     {"Auto QTE Minigame Click Only", function()
-        return getlblparent("Auto QTE Minigame Click Only", function()
+        local btn = nil
+        pcall(function()
             if premium_mode then
-                return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[18]
+                btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[18]
+            else
+                btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[14]
             end
-            return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[14]
         end)
+        if btn then return btn end
+        return getlblparent("Auto QTE Minigame Click Only", function() return nil end)
     end},
     {"Auto ShutUp", function()
-        return getlblparent("Auto ShutUp", function()
-            if premium_mode then
-                return nil
-            end
-            return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[31]
-        end)
+        local btn = nil
+        if not premium_mode then
+            pcall(function()
+                btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[31]
+            end)
+        end
+        if btn then return btn end
+        return getlblparent("Auto ShutUp", function() return nil end)
     end},
     {"Auto Hiromi Guess Domain Only", function() return getlblparent("Auto Hiromi Guess Domain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[20] end) end}
 }
