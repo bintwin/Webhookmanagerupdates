@@ -137,9 +137,18 @@ local function clickybtn(b)
 end
 
 local function getlblparent(txt, fbackfunc)
+    local ltxt = string.lower(txt)
     for _, obj in pairs(guis:GetDescendants()) do
-        if obj:IsA("TextLabel") and obj.Text and string.find(string.lower(obj.Text), string.lower(txt), 1, true) then
-            return obj.Parent
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.Text and string.lower(obj.Text) == ltxt then
+            return obj:IsA("TextLabel") and obj.Parent or obj
+        end
+    end
+    for _, obj in pairs(guis:GetDescendants()) do
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.Text then
+            local otxt = string.lower(obj.Text)
+            if string.find(otxt, ltxt, 1, true) and not string.find(otxt, "range") and not string.find(otxt, "delay") then
+                return obj:IsA("TextLabel") and obj.Parent or obj
+            end
         end
     end
     local f = nil
@@ -451,10 +460,10 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     end)
 
     local barParent = dfrm.Parent
-    if not barParent then barParent = dfrm end
-    local barX = dfrm.AbsolutePosition.X
-    local barW = dfrm.AbsoluteSize.X
-    local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + insetY
+    if not barParent or not barParent:IsA("Frame") then barParent = dfrm end
+    local barX = barParent.AbsolutePosition.X
+    local barW = barParent.AbsoluteSize.X
+    local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY
 
     local function tapAt(tx)
         vman:SendMouseButtonEvent(tx, sy, 0, true, game, 1)
