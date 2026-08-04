@@ -101,37 +101,105 @@ local playerstuff = game:GetService("Players")
 local localboy = playerstuff.LocalPlayer
 local guis = localboy.PlayerGui
 local vman = game:GetService("VirtualInputManager")
+local inputman = game:GetService("UserInputService")
+local guiservice = game:GetService("GuiService")
+local touchmode = inputman.TouchEnabled
+
+local function getguicenter(guiobj)
+    if not guiobj or not guiobj:IsA("GuiObject") then return nil, nil end
+
+    local x = guiobj.AbsolutePosition.X + (guiobj.AbsoluteSize.X / 2)
+    local y = guiobj.AbsolutePosition.Y + (guiobj.AbsoluteSize.Y / 2)
+
+    return math.floor(x + 0.5), math.floor(y + 0.5)
+end
+
+local function getclicktarget(obj)
+    if not obj then return nil end
+    if obj:IsA("GuiButton") then return obj end
+
+    for _, child in pairs(obj:GetDescendants()) do
+        if child:IsA("GuiButton") and child.Visible then
+            return child
+        end
+    end
+
+    local current = obj.Parent
+    while current and current ~= game do
+        if current:IsA("GuiButton") then return current end
+        current = current.Parent
+    end
+
+    return obj
+end
 
 local function clickybtn(b)
+    b = getclicktarget(b)
     if not b then return end
-    local wrk = false
-    pcall(function()
-        if type(getconnections) == "function" then
-            for _, c in pairs(getconnections(b.MouseButton1Click)) do pcall(function() c:Fire() end); wrk = true end
-            for _, c in pairs(getconnections(b.Activated)) do pcall(function() c:Fire() end); wrk = true end
-            for _, c in pairs(getconnections(b.MouseButton1Down)) do pcall(function() c:Fire() end); wrk = true end
-            for _, c in pairs(getconnections(b.MouseButton1Up)) do pcall(function() c:Fire() end); wrk = true end
-            for _, c in pairs(getconnections(b.TouchTap)) do pcall(function() c:Fire() end); wrk = true end
+
+    local function fireconnections(signal)
+        if type(getconnections) ~= "function" or not signal then return false end
+
+        local connections = nil
+        pcall(function() connections = getconnections(signal) end)
+        if type(connections) ~= "table" or #connections == 0 then return false end
+
+        for _, connection in pairs(connections) do
+            pcall(function() connection:Fire() end)
         end
-    end)
-    if not wrk then
+
+        return true
+    end
+
+    local worked = false
+
+    if b:IsA("GuiButton") then
+        worked = fireconnections(b.Activated)
+        if not worked then worked = fireconnections(b.MouseButton1Click) end
+    end
+
+    if not worked then
+        worked = fireconnections(b.TouchTap)
+    end
+
+    if not worked and type(firesignal) == "function" then
         pcall(function()
-            local px = b.AbsolutePosition.X + (b.AbsoluteSize.X / 2)
-            local py = b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2) + 36
-            vman:SendMouseButtonEvent(px, py, 0, true, game, 1)
-            task.wait(0.02)
-            vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
+            if b:IsA("GuiButton") then
+                firesignal(b.Activated)
+            else
+                firesignal(b.TouchTap)
+            end
+            worked = true
         end)
+    end
+
+    if worked then return end
+
+    local x, y = getguicenter(b)
+    if not x or not y then return end
+
+    if touchmode then
         pcall(function()
-            local vu = game:GetService("VirtualUser")
-            vu:ClickButton1(Vector2.new(b.AbsolutePosition.X + (b.AbsoluteSize.X / 2), b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2)))
+            vman:SendTouchEvent(0, 0, x, y)
+            task.wait(0.04)
+            vman:SendTouchEvent(0, 2, x, y)
+            worked = true
         end)
+    end
+
+    if not worked then
         pcall(function()
-            local px = b.AbsolutePosition.X + (b.AbsoluteSize.X / 2)
-            local py = b.AbsolutePosition.Y + (b.AbsoluteSize.Y / 2) + 36
-            vman:SendTouchEvent(0, 0, px, py)
-            task.wait(0.01)
-            vman:SendTouchEvent(0, 2, px, py)
+            vman:SendMouseMoveEvent(x, y, game)
+            vman:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            task.wait(0.04)
+            vman:SendMouseButtonEvent(x, y, 0, false, game, 1)
+            worked = true
+        end)
+    end
+
+    if not worked then
+        pcall(function()
+            game:GetService("VirtualUser"):ClickButton1(Vector2.new(x, y))
         end)
     end
 end
@@ -339,6 +407,14 @@ local fastbtnlist = {
             return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[14]
         end)
     end},
+    {"Auto ShutUp", function()
+        return getlblparent("Auto ShutUp", function()
+            if premium_mode then
+                return nil
+            end
+            return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[31]
+        end)
+    end},
     {"Auto Hiromi Guess Domain Only", function() return getlblparent("Auto Hiromi Guess Domain Only", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[20] end) end}
 }
 
@@ -377,7 +453,6 @@ local morenames = {
     "Auto Play On Kill",
     "Auto Ratio",
     "Auto Reversal Red Teleport",
-    "Auto ShutUp",
     "Auto Spawn Train",
     "Auto Swap Players",
     "Auto Todo BlackFlash",
@@ -431,75 +506,158 @@ for _, nm in pairs(morenames) do
     end
 end
 
+local function readslidernumber(label)
+    if not label then return nil end
+    local textvalue = tostring(label.Text or "")
+    local value = string.match(textvalue, "[-+]?%d+%.?%d*")
+    return value and tonumber(value) or nil
+end
+
 local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
-    local dfrm = nil
-    local dlbl = nil
+    local slider = nil
+    local label = nil
+
     pcall(function()
-        dfrm = frmfunc()
-        dlbl = lblfunc()
+        slider = frmfunc()
+        label = lblfunc()
     end)
-    local sf = nil
+
+    if not slider or not label or not slider:IsA("GuiObject") then
+        task.wait(0.05)
+        return
+    end
+
+    local scrolling = nil
     pcall(function()
-        local curr = dfrm
-        while curr and curr ~= game do
-            if curr:IsA("ScrollingFrame") then
-                sf = curr
+        local current = slider
+        while current and current ~= game do
+            if current:IsA("ScrollingFrame") then
+                scrolling = current
                 break
             end
-            curr = curr.Parent
+            current = current.Parent
         end
     end)
-    if not sf then
-        pcall(function() sf = guis.ScreenGui.Frame.Frame:GetChildren()[4] end)
-    end
-    if dfrm and sf and sf:IsA("ScrollingFrame") then
-        local tgY = dfrm.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - (sf.AbsoluteWindowSize.Y / 2)
-        if tgY < 0 then tgY = 0 end
-        sf.CanvasPosition = Vector2.new(0, tgY)
-        task.wait(0.15)
-    end
-    if dfrm and dlbl then
-        local sx = dfrm.AbsolutePosition.X + (dfrm.AbsoluteSize.X / 2)
-        local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + 66
-        local phnchk = false
-        pcall(function() phnchk = game:GetService("UserInputService").TouchEnabled end)
-        if phnchk then sy = sy - 55 end
-        if mousemoveabs and mouse1press and mouse1release then
-            mousemoveabs(sx, sy)
-            task.wait(0.05)
-            mouse1press()
-            task.wait(0.05)
-            local lim = 0
-            while dlbl.Text ~= wanttxt and lim < 100 do
-                local cstr = string.match(dlbl.Text, "%d+")
-                local cnum = cstr and tonumber(cstr) or 0
-                if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
-                mousemoveabs(sx, sy)
-                mouse1press()
-                task.wait(0.01)
-                lim = lim + 1
+
+    if not scrolling then
+        pcall(function()
+            local possible = guis.ScreenGui.Frame.Frame:GetChildren()[4]
+            if possible:IsA("ScrollingFrame") then
+                scrolling = possible
             end
-            mouse1release()
+        end)
+    end
+
+    if scrolling then
+        pcall(function()
+            local targetY = slider.AbsolutePosition.Y - scrolling.AbsolutePosition.Y + scrolling.CanvasPosition.Y - (scrolling.AbsoluteWindowSize.Y / 2)
+            local maxY = math.max(0, scrolling.AbsoluteCanvasSize.Y - scrolling.AbsoluteWindowSize.Y)
+            scrolling.CanvasPosition = Vector2.new(scrolling.CanvasPosition.X, math.clamp(targetY, 0, maxY))
+        end)
+        task.wait(0.2)
+    end
+
+    local currentValue = readslidernumber(label)
+    if currentValue == wantnum or tostring(label.Text) == wanttxt then
+        task.wait(0.05)
+        return
+    end
+
+    local left = math.floor(slider.AbsolutePosition.X + 2)
+    local right = math.floor(slider.AbsolutePosition.X + slider.AbsoluteSize.X - 2)
+    local y = math.floor(slider.AbsolutePosition.Y + (slider.AbsoluteSize.Y / 2))
+
+    if right <= left then
+        task.wait(0.05)
+        return
+    end
+
+    local x = math.clamp(math.floor(slider.AbsolutePosition.X + (slider.AbsoluteSize.X / 2)), left, right)
+    local touchId = 0
+
+    local function begininput(px)
+        if touchmode then
+            vman:SendTouchEvent(touchId, 0, px, y)
         else
-            vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
-            pcall(function() vman:SendTouchEvent(0, 0, sx, sy) end)
-            task.wait(0.05)
-            local lim = 0
-            while dlbl.Text ~= wanttxt and lim < 100 do
-                local cstr = string.match(dlbl.Text, "%d+")
-                local cnum = cstr and tonumber(cstr) or 0
-                if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
-                vman:SendMouseMoveEvent(sx, sy, game)
-                pcall(function() vman:SendTouchEvent(0, 1, sx, sy) end)
-                vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
-                task.wait(0.01)
-                lim = lim + 1
-            end
-            vman:SendMouseButtonEvent(sx, sy, 0, false, game, 1)
-            pcall(function() vman:SendTouchEvent(0, 2, sx, sy) end)
+            vman:SendMouseMoveEvent(px, y, game)
+            vman:SendMouseButtonEvent(px, y, 0, true, game, 1)
         end
     end
-    task.wait(0.05)
+
+    local function moveinput(px)
+        if touchmode then
+            vman:SendTouchEvent(touchId, 1, px, y)
+        else
+            vman:SendMouseMoveEvent(px, y, game)
+        end
+    end
+
+    local function endinput(px)
+        if touchmode then
+            vman:SendTouchEvent(touchId, 2, px, y)
+        else
+            vman:SendMouseButtonEvent(px, y, 0, false, game, 1)
+        end
+    end
+
+    local began = false
+    pcall(function()
+        begininput(x)
+        began = true
+    end)
+
+    if not began then
+        task.wait(0.05)
+        return
+    end
+
+    task.wait(0.06)
+
+    local lastValue = readslidernumber(label)
+    local direction = 1
+    local step = math.max(2, math.floor(slider.AbsoluteSize.X / 45))
+    local attempts = 0
+    local unchanged = 0
+
+    while attempts < 180 do
+        currentValue = readslidernumber(label)
+        if currentValue == wantnum or tostring(label.Text) == wanttxt then
+            break
+        end
+
+        if currentValue ~= nil then
+            direction = currentValue > wantnum and -1 or 1
+        end
+
+        local nextX = math.clamp(x + (step * direction), left, right)
+
+        if nextX == x then
+            direction = -direction
+            nextX = math.clamp(x + (step * direction), left, right)
+        end
+
+        x = nextX
+        pcall(function() moveinput(x) end)
+        task.wait(touchmode and 0.025 or 0.012)
+
+        local newValue = readslidernumber(label)
+        if newValue == lastValue then
+            unchanged = unchanged + 1
+        else
+            unchanged = 0
+            lastValue = newValue
+        end
+
+        if unchanged >= 10 then
+            step = math.min(math.max(step + 1, math.floor(slider.AbsoluteSize.X / 25)), 10)
+            unchanged = 0
+        end
+
+        attempts = attempts + 1
+    end
+
+    pcall(function() endinput(x) end)
+    task.wait(0.08)
 end
 
 opentab("Auto", 5)
