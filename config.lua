@@ -477,7 +477,7 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     
     local barX = barParent.AbsolutePosition.X
     local barW = barParent.AbsoluteSize.X
-    local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY
+    local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY + 12
 
     local function smartDragToValue()
         local startX = barX + (barW / 2)
