@@ -477,51 +477,51 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     local barW = barParent.AbsoluteSize.X
     local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY
 
-    local function tapAt(tx)
-        pcall(function()
-            if mousemoveabs then
-                mousemoveabs(tx, sy)
-                task.wait(0.02)
-            end
-        end)
-        vman:SendMouseButtonEvent(tx, sy, 0, true, game, 1)
-        task.wait(0.015)
-        vman:SendMouseMoveEvent(tx, sy, game)
-        task.wait(0.015)
-        vman:SendMouseButtonEvent(tx, sy, 0, false, game, 1)
-        pcall(function() vman:SendTouchEvent(0, 0, tx, sy) end)
-        task.wait(0.015)
-        pcall(function() vman:SendTouchEvent(0, 1, tx, sy) end)
-        task.wait(0.015)
-        pcall(function() vman:SendTouchEvent(0, 2, tx, sy) end)
-    end
+    local function smartDragToValue()
+        local startX = dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X
+        if startX < barX then startX = barX end
+        if startX > barX + barW then startX = barX + barW end
 
-    local lim = 0
-    while dlbl.Text ~= wanttxt and lim < 60 do
-        local cstr = string.match(dlbl.Text, "%d+")
-        local cnum = cstr and tonumber(cstr) or 0
-        if cnum == wantnum then break end
+        pcall(function() if mousemoveabs then mousemoveabs(startX, sy) end end)
+        task.wait(0.01)
+        vman:SendMouseButtonEvent(startX, sy, 0, true, game, 1)
+        pcall(function() vman:SendTouchEvent(0, 0, startX, sy) end)
+        task.wait(0.05)
 
-        local ratio = wantnum / 50
-        if ratio > 1 then ratio = 1 end
+        local lim = 0
+        local ratio = (startX - barX) / barW
         if ratio < 0 then ratio = 0 end
-        local tx = barX + (barW * ratio)
-        tapAt(tx)
-        task.wait(0.08)
+        if ratio > 1 then ratio = 1 end
 
-        local newstr = string.match(dlbl.Text, "%d+")
-        local newnum = newstr and tonumber(newstr) or cnum
-        if newnum == cnum and lim > 3 then
-            local nudge = 0.02 * lim
-            if cnum > wantnum then ratio = ratio - nudge else ratio = ratio + nudge end
-            if ratio > 1 then ratio = 1 end
+        while dlbl.Text ~= wanttxt and lim < 50 do
+            local cstr = string.match(dlbl.Text, "%d+")
+            local cnum = cstr and tonumber(cstr) or 0
+            if cnum == wantnum then break end
+            
+            local diff = wantnum - cnum
+            local step = 0.02
+            if math.abs(diff) > 10 then step = 0.06 end
+            
+            if diff > 0 then ratio = ratio + step else ratio = ratio - step end
             if ratio < 0 then ratio = 0 end
-            tx = barX + (barW * ratio)
-            tapAt(tx)
-            task.wait(0.08)
+            if ratio > 1 then ratio = 1 end
+            
+            local tx = barX + (barW * ratio)
+            
+            pcall(function() if mousemoveabs then mousemoveabs(tx, sy) end end)
+            vman:SendMouseMoveEvent(tx, sy, game)
+            pcall(function() vman:SendTouchEvent(0, 1, tx, sy) end)
+            
+            task.wait(0.03)
+            lim = lim + 1
         end
-        lim = lim + 1
+        
+        local finaltx = barX + (barW * ratio)
+        vman:SendMouseButtonEvent(finaltx, sy, 0, false, game, 1)
+        pcall(function() vman:SendTouchEvent(0, 2, finaltx, sy) end)
     end
+    
+    smartDragToValue()
     task.wait(0.05)
 end
 
