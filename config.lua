@@ -24,6 +24,44 @@ local premium_mode = premiumvalue == true
     or premiumvalue == 1
     or string.lower(tostring(premiumvalue)) == "true"
 
+-- Startup options
+-- getgenv().startup_wait = 4       -- number of seconds to wait
+-- getgenv().startup_wait = false   -- disables the wait
+-- getgenv().show_notification = true
+local startup_wait_value = env.startup_wait
+if startup_wait_value == nil then
+    startup_wait_value = env.wait_before_load
+end
+if startup_wait_value == nil then
+    startup_wait_value = env.four_second_wait
+end
+
+local startup_wait = 0
+if startup_wait_value == true then
+    startup_wait = 4
+elseif type(startup_wait_value) == "number" then
+    startup_wait = math.clamp(startup_wait_value, 0, 30)
+elseif type(startup_wait_value) == "string" then
+    local lowered = string.lower(startup_wait_value)
+    if lowered == "true" then
+        startup_wait = 4
+    else
+        startup_wait = math.clamp(tonumber(startup_wait_value) or 0, 0, 30)
+    end
+end
+
+local notification_value = env.show_notification
+if notification_value == nil then
+    notification_value = env.notification
+end
+if notification_value == nil then
+    notification_value = true
+end
+
+local show_notification = notification_value == true
+    or notification_value == 1
+    or string.lower(tostring(notification_value)) == "true"
+
 local customconfig = env.Config or env.config or env.customconfig or ""
 
 local httpman = game:GetService("HttpService")
@@ -195,7 +233,7 @@ local function clickybtn(b)
         pcall(function()
             local touchX, touchY = gettouchcoords(b, x, y)
             vman:SendTouchEvent(0, 0, touchX, touchY)
-            task.wait(0.04)
+            task.wait(0.012)
             vman:SendTouchEvent(0, 2, touchX, touchY)
             worked = true
         end)
@@ -205,7 +243,7 @@ local function clickybtn(b)
         pcall(function()
             vman:SendMouseMoveEvent(x, y, game)
             vman:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            task.wait(0.04)
+            task.wait(0.012)
             vman:SendMouseButtonEvent(x, y, 0, false, game, 1)
             worked = true
         end)
@@ -348,7 +386,194 @@ local function objecthastext(obj, wanted)
     return false
 end
 
+local currenttab = nil
+local textsearchcache = {}
+local prefixsearchcache = {}
+local tabindexes = {}
+local tabscanned = {}
+local globalindex = nil
+
+-- Always scan tabs silently.
+-- Hardcoded paths remain fallbacks when text search cannot find a control.
+local silent_tab_scan = true
+local exhaustive_tab_scan = false
+
+local directsignalsavailable = type(getconnections) == "function"
+    or type(firesignal) == "function"
+
+local function getsearchcachekey(wanted)
+    return tostring(currenttab or "__visible") .. "|" .. normalizetext(wanted)
+end
+
+local function addtabindexentry(index, textvalue, control, score)
+    if not control or not control.Parent then return end
+
+    local normalized = normalizetext(textvalue)
+    if normalized == "" then return end
+
+    local function addkey(key)
+        local oldentry = index.exact[key]
+        if not oldentry or score > oldentry.score then
+            index.exact[key] = {
+                object = control,
+                score = score,
+                text = normalized
+            }
+        end
+    end
+
+    addkey(normalized)
+    addkey(striponly(normalized))
+
+    table.insert(index.entries, {
+        object = control,
+        score = score,
+        text = normalized
+    })
+end
+
+local function buildglobalindex()
+    if globalindex then return end
+
+    local index = {
+        exact = {},
+        entries = {}
+    }
+
+    for _, obj in pairs(guis:GetDescendants()) do
+        if obj:IsA("GuiButton") then
+            local visibleBonus = isguivisible(obj) and 180 or 0
+
+            if obj:IsA("TextButton") then
+                addtabindexentry(index, obj.Text, obj, 1200 + visibleBonus)
+            end
+
+            addtabindexentry(index, obj.Name, obj, 650 + visibleBonus)
+
+            for _, child in pairs(obj:GetDescendants()) do
+                if child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox") then
+                    addtabindexentry(index, child.Text, obj, 1050 + visibleBonus)
+                end
+            end
+        end
+    end
+
+    globalindex = index
+end
+
+local function findglobalexact(wanted)
+    buildglobalindex()
+    if not globalindex then return nil end
+
+    local normalized = normalizetext(wanted)
+    local entry = globalindex.exact[normalized] or globalindex.exact[striponly(normalized)]
+
+    if entry and entry.object and entry.object.Parent then
+        return entry.object
+    end
+
+    return nil
+end
+
+local function findglobalprefix(wanted)
+    buildglobalindex()
+    if not globalindex then return nil end
+
+    local best = nil
+    local bestscore = -math.huge
+
+    for _, entry in pairs(globalindex.entries) do
+        if entry.object and entry.object.Parent and textstartswith(entry.text, wanted) then
+            if entry.score > bestscore then
+                best = entry.object
+                bestscore = entry.score
+            end
+        end
+    end
+
+    return best
+end
+
+local function buildtabindex(tabname)
+    if not tabname or tabscanned[tabname] then return end
+
+    local index = {
+        exact = {},
+        entries = {}
+    }
+
+    for _, obj in pairs(guis:GetDescendants()) do
+        if isguivisible(obj) then
+            if obj:IsA("GuiButton") then
+                if obj:IsA("TextButton") then
+                    addtabindexentry(index, obj.Text, obj, 1200)
+                end
+
+                addtabindexentry(index, obj.Name, obj, 700)
+
+                for _, child in pairs(obj:GetDescendants()) do
+                    if child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox") then
+                        addtabindexentry(index, child.Text, obj, 1050)
+                    end
+                end
+            end
+        end
+    end
+
+    tabindexes[tabname] = index
+    tabscanned[tabname] = true
+end
+
+local function findindexedexact(tabname, wanted)
+    local index = tabindexes[tabname]
+    if not index then return nil end
+
+    local normalized = normalizetext(wanted)
+    local entry = index.exact[normalized] or index.exact[striponly(normalized)]
+    if entry and entry.object and entry.object.Parent then
+        return entry.object
+    end
+
+    return nil
+end
+
+local function findindexedprefix(tabname, wanted)
+    local index = tabindexes[tabname]
+    if not index then return nil end
+
+    local best = nil
+    local bestscore = -math.huge
+
+    for _, entry in pairs(index.entries) do
+        if entry.object and entry.object.Parent and textstartswith(entry.text, wanted) and entry.score > bestscore then
+            best = entry.object
+            bestscore = entry.score
+        end
+    end
+
+    return best
+end
+
 local function findcontrolbytext(wanted)
+    local cachekey = getsearchcachekey(wanted)
+    local cached = textsearchcache[cachekey]
+    if cached and cached.Parent then return cached end
+
+    if currenttab then
+        buildtabindex(currenttab)
+        local indexed = findindexedexact(currenttab, wanted)
+        if indexed then
+            textsearchcache[cachekey] = indexed
+            return indexed
+        end
+    end
+
+    local globalmatch = findglobalexact(wanted)
+    if globalmatch then
+        textsearchcache[cachekey] = globalmatch
+        return globalmatch
+    end
+
     local bestButton = nil
     local bestButtonScore = -math.huge
     local matchingLabels = {}
@@ -382,6 +607,7 @@ local function findcontrolbytext(wanted)
     end
 
     if bestButton then
+        textsearchcache[cachekey] = bestButton
         return bestButton
     end
 
@@ -412,6 +638,7 @@ local function findcontrolbytext(wanted)
     end
 
     if bestRowButton then
+        textsearchcache[cachekey] = bestRowButton
         return bestRowButton
     end
 
@@ -437,6 +664,25 @@ local function findcontrolbytext(wanted)
 end
 
 local function findcontrolbyprefix(wanted)
+    local cachekey = getsearchcachekey(wanted)
+    local cached = prefixsearchcache[cachekey]
+    if cached and cached.Parent then return cached end
+
+    if currenttab then
+        buildtabindex(currenttab)
+        local indexed = findindexedprefix(currenttab, wanted)
+        if indexed then
+            prefixsearchcache[cachekey] = indexed
+            return indexed
+        end
+    end
+
+    local globalmatch = findglobalprefix(wanted)
+    if globalmatch then
+        prefixsearchcache[cachekey] = globalmatch
+        return globalmatch
+    end
+
     local bestButton = nil
     local bestButtonScore = -math.huge
     local labels = {}
@@ -471,17 +717,22 @@ local function findcontrolbyprefix(wanted)
         end
     end
 
-    if bestButton then return bestButton end
+    if bestButton then
+        prefixsearchcache[cachekey] = bestButton
+        return bestButton
+    end
 
     for _, label in pairs(labels) do
         local button = getrowbuttonfromlabel(label)
-        if button then return button end
+        if button then
+            prefixsearchcache[cachekey] = button
+            return button
+        end
     end
 
     return nil
 end
 
-local currenttab = nil
 local alltabs = {
     "Main",
     "Combat",
@@ -539,8 +790,27 @@ local function findtabbutton(tname)
 end
 
 local function opentab(tname, idxfallback)
+    if currenttab == tname then
+        buildtabindex(tname)
+        return true
+    end
+
     local worked = false
     local tabbutton = findtabbutton(tname)
+    local rootframe = nil
+    local oldrootvisible = nil
+
+    -- Hide the menu for the tiny amount of time a required tab is opened.
+    -- This prevents visible tab flashing while still allowing signal clicks.
+    if silent_tab_scan and directsignalsavailable then
+        pcall(function()
+            rootframe = guis.ScreenGui.Frame
+            if rootframe and rootframe:IsA("GuiObject") then
+                oldrootvisible = rootframe.Visible
+                rootframe.Visible = false
+            end
+        end)
+    end
 
     if tabbutton then
         clickybtn(tabbutton)
@@ -559,7 +829,20 @@ local function opentab(tname, idxfallback)
 
     if worked then
         currenttab = tname
-        task.wait(0.35)
+        globalindex = nil
+        textsearchcache = {}
+        prefixsearchcache = {}
+        task.wait(silent_tab_scan and 0.025 or 0.07)
+    end
+
+    if rootframe and oldrootvisible ~= nil then
+        pcall(function()
+            rootframe.Visible = oldrootvisible
+        end)
+    end
+
+    if worked then
+        buildtabindex(tname)
     end
 
     return worked
@@ -616,7 +899,11 @@ end
 
 local function findcontrolalltabs(wanted, fbackfunc, preferredtabs)
     local found = findcontrolbytext(wanted)
-    if found then return found end
+
+    -- Hidden buttons can be activated silently when signal helpers exist.
+    if found and (isguivisible(found) or directsignalsavailable) then
+        return found
+    end
 
     local tried = {}
     local hints = preferredtabs or gettabhints(wanted)
@@ -627,23 +914,27 @@ local function findcontrolalltabs(wanted, fbackfunc, preferredtabs)
 
         if currenttab ~= tabname then
             opentab(tabname, tabfallbacks[tabname])
+        else
+            buildtabindex(tabname)
         end
 
-        return findcontrolbytext(wanted)
+        return findindexedexact(tabname, wanted)
+            or findglobalexact(wanted)
+            or findcontrolbytext(wanted)
     end
 
+    -- Only open likely tabs when the control was not already loaded.
     for _, tabname in pairs(hints) do
         found = trytab(tabname)
         if found then return found end
     end
 
-    for _, tabname in pairs(alltabs) do
-        found = trytab(tabname)
-        if found then return found end
-    end
-
-    if hints[1] and currenttab ~= hints[1] then
-        opentab(hints[1], tabfallbacks[hints[1]])
+    -- Full visible scanning is optional because it causes the tab flicker.
+    if exhaustive_tab_scan or not silent_tab_scan then
+        for _, tabname in pairs(alltabs) do
+            found = trytab(tabname)
+            if found then return found end
+        end
     end
 
     return withfallback(nil, fbackfunc)
@@ -651,7 +942,10 @@ end
 
 local function findprefixalltabs(wanted, fbackfunc, preferredtabs)
     local found = findcontrolbyprefix(wanted)
-    if found then return found end
+
+    if found and (isguivisible(found) or directsignalsavailable) then
+        return found
+    end
 
     local tried = {}
     local hints = preferredtabs or gettabhints(wanted)
@@ -662,9 +956,13 @@ local function findprefixalltabs(wanted, fbackfunc, preferredtabs)
 
         if currenttab ~= tabname then
             opentab(tabname, tabfallbacks[tabname])
+        else
+            buildtabindex(tabname)
         end
 
-        return findcontrolbyprefix(wanted)
+        return findindexedprefix(tabname, wanted)
+            or findglobalprefix(wanted)
+            or findcontrolbyprefix(wanted)
     end
 
     for _, tabname in pairs(hints) do
@@ -672,13 +970,11 @@ local function findprefixalltabs(wanted, fbackfunc, preferredtabs)
         if found then return found end
     end
 
-    for _, tabname in pairs(alltabs) do
-        found = trytab(tabname)
-        if found then return found end
-    end
-
-    if hints[1] and currenttab ~= hints[1] then
-        opentab(hints[1], tabfallbacks[hints[1]])
+    if exhaustive_tab_scan or not silent_tab_scan then
+        for _, tabname in pairs(alltabs) do
+            found = trytab(tabname)
+            if found then return found end
+        end
     end
 
     return withfallback(nil, fbackfunc)
@@ -698,7 +994,7 @@ end
 
 local guiready = false
 local attempts = 0
-while not guiready and attempts < 120 do
+while not guiready and attempts < 100 do
     pcall(function()
         if guis.ScreenGui.Frame.Frame.ScrollingFrame then
             guiready = true
@@ -706,19 +1002,24 @@ while not guiready and attempts < 120 do
     end)
     if guiready then break end
     attempts = attempts + 1
-    task.wait(1)
+    task.wait(0.012)
 end
 
 if not guiready then return end
 
-pcall(function()
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Config Loader",
-        Text = premium_mode and "Premium paths selected" or "Free paths selected",
-        Duration = 4
-    })
-end)
-task.wait(4)
+if startup_wait > 0 then
+    task.wait(startup_wait)
+end
+
+if show_notification then
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Config Loader",
+            Text = premium_mode and "Premium paths selected" or "Free paths selected",
+            Duration = 4
+        })
+    end)
+end
 
 if chkdo("Lock On") then
     local lockbtn = getbtnany("Lock On", function()
@@ -726,11 +1027,11 @@ if chkdo("Lock On") then
     end, {"Target", "Main", "Combat"})
     if lockbtn then
         clickybtn(lockbtn)
-        task.wait(0.05)
+        task.wait(0.012)
     end
     local b1 = findprefixalltabs("Lock On Keybind", function() return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[15] end, {"Target", "Main", "Combat"})
     clickybtn(b1)
-    task.wait(0.05)
+    task.wait(0.012)
     local keytohit = Enum.KeyCode.C
     if enablecustomconfig and parsedcfg and parsedcfg["Lock On Keybind"] then
         pcall(function()
@@ -738,9 +1039,9 @@ if chkdo("Lock On") then
         end)
     end
     vman:SendKeyEvent(true, keytohit, false, game)
-    task.wait(0.02)
+    task.wait(0.008)
     vman:SendKeyEvent(false, keytohit, false, game)
-    task.wait(0.05)
+    task.wait(0.012)
 end
 
 if chklockmethod("Character") then
@@ -751,7 +1052,7 @@ if chklockmethod("Character") then
         return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[13].Frame.ScrollingFrame:GetChildren()[3]
     end)
     clickybtn(charbtn)
-    task.wait(0.15)
+    task.wait(0.03)
 end
 
 if not chklockmethod("Camera") then
@@ -762,7 +1063,7 @@ if not chklockmethod("Camera") then
         return nil
     end)
     clickybtn(cambtn)
-    task.wait(0.1)
+    task.wait(0.025)
 end
 
 if chkdo("Unlock Extra Emote slot") then
@@ -771,7 +1072,7 @@ if chkdo("Unlock Extra Emote slot") then
         pcall(function() emotebtn = guis.ScreenGui.Frame.Frame:GetChildren()[7]:GetChildren()[25] end)
     end
     clickybtn(emotebtn)
-    task.wait(0.05)
+    task.wait(0.012)
 end
 
 if chkdo("M1 Assist") then
@@ -789,13 +1090,13 @@ if chkdo("M1 Assist") then
     end
 
     clickybtn(m1btn)
-    task.wait(0.02)
+    task.wait(0.008)
     local m1m = "UpperCut"
     if enablecustomconfig and parsedcfg and parsedcfg["M1 Method"] then
         m1m = tostring(parsedcfg["M1 Method"])
     end
     clickybtn(getbtnany(m1m, function() return nil end))
-    task.wait(0.02)
+    task.wait(0.008)
 end
 
 local function isbtnenabled(btn)
@@ -827,7 +1128,7 @@ if chkdo("Auto Counter") then
     end
     if cntrbtn and not isbtnenabled(cntrbtn) then
         clickybtn(cntrbtn)
-        task.wait(0.05)
+        task.wait(0.012)
     end
 end
 
@@ -875,7 +1176,7 @@ for _, item in pairs(fastbtnlist) do
         local btn = item[2]()
         if btn and not isbtnenabled(btn) then
             clickybtn(btn)
-            task.wait(0.02)
+            task.wait(0.008)
         end
     end
 end
@@ -953,7 +1254,7 @@ for _, nm in pairs(morenames) do
         local btn = getbtnany(nm, function() return getlblparent(nm, function() return nil end) end)
         if btn and not isbtnenabled(btn) then
             clickybtn(btn)
-            task.wait(0.02)
+            task.wait(0.008)
         end
     end
 end
@@ -985,7 +1286,7 @@ if enablecustomconfig and parsedcfg then
 
             if btn and not isbtnenabled(btn) then
                 clickybtn(btn)
-                task.wait(0.02)
+                task.wait(0.008)
             end
 
             alreadyhandled[normalizedName] = true
@@ -1135,18 +1436,10 @@ local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, 
 
     local label = findsliderlabel(prefix)
 
-    if not label then
-        for _, tabname in pairs(alltabs) do
-            if currenttab ~= tabname then
-                opentab(tabname, tabfallbacks[tabname])
-            end
-            label = findsliderlabel(prefix)
-            if label then break end
-        end
-    end
-
+    -- These sliders live on Auto. Do not scan every other tab when one is missing.
     if not label and currenttab ~= "Auto" then
         opentab("Auto", 5)
+        label = findsliderlabel(prefix)
     end
 
     if not label then
@@ -1178,7 +1471,7 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     end)
 
     if not slider or not label or not slider:IsA("GuiObject") then
-        task.wait(0.05)
+        task.wait(0.012)
         return
     end
 
@@ -1205,16 +1498,27 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     if scrolling then
         pcall(function()
-            local targetY = slider.AbsolutePosition.Y - scrolling.AbsolutePosition.Y + scrolling.CanvasPosition.Y - (scrolling.AbsoluteWindowSize.Y / 2)
-            local maxY = math.max(0, scrolling.AbsoluteCanvasSize.Y - scrolling.AbsoluteWindowSize.Y)
-            scrolling.CanvasPosition = Vector2.new(scrolling.CanvasPosition.X, math.clamp(targetY, 0, maxY))
+            local targetY = slider.AbsolutePosition.Y
+                - scrolling.AbsolutePosition.Y
+                + scrolling.CanvasPosition.Y
+                - (scrolling.AbsoluteWindowSize.Y / 2)
+
+            local maxY = math.max(
+                0,
+                scrolling.AbsoluteCanvasSize.Y - scrolling.AbsoluteWindowSize.Y
+            )
+
+            scrolling.CanvasPosition = Vector2.new(
+                scrolling.CanvasPosition.X,
+                math.clamp(targetY, 0, maxY)
+            )
         end)
-        task.wait(0.2)
+        task.wait(0.04)
     end
 
-    local currentValue = readslidernumber(label)
-    if currentValue == wantnum or tostring(label.Text) == wanttxt then
-        task.wait(0.05)
+    local originalValue = readslidernumber(label)
+    if originalValue == wantnum or tostring(label.Text) == wanttxt then
+        task.wait(0.012)
         return
     end
 
@@ -1223,12 +1527,18 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     local y = math.floor(slider.AbsolutePosition.Y + (slider.AbsoluteSize.Y / 2))
 
     if right <= left then
-        task.wait(0.05)
+        task.wait(0.012)
         return
     end
 
-    local x = math.clamp(math.floor(slider.AbsolutePosition.X + (slider.AbsoluteSize.X / 2)), left, right)
+    local x = math.clamp(
+        math.floor(slider.AbsolutePosition.X + (slider.AbsoluteSize.X / 2)),
+        left,
+        right
+    )
+
     local touchId = 0
+    local inputStarted = false
 
     local function begininput(px)
         if touchmode then
@@ -1238,6 +1548,7 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
             vman:SendMouseMoveEvent(px, y, game)
             vman:SendMouseButtonEvent(px, y, 0, true, game, 1)
         end
+        inputStarted = true
     end
 
     local function moveinput(px)
@@ -1250,72 +1561,144 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     end
 
     local function endinput(px)
+        if not inputStarted then return end
+
         if touchmode then
             local touchX, touchY = gettouchcoords(slider, px, y)
             vman:SendTouchEvent(touchId, 2, touchX, touchY)
         else
             vman:SendMouseButtonEvent(px, y, 0, false, game, 1)
         end
+
+        inputStarted = false
     end
 
-    local began = false
-    pcall(function()
+    local updatewait = touchmode and 0.018 or 0.01
+
+    local function moveandread(px)
+        x = math.clamp(math.floor(px + 0.5), left, right)
+        pcall(function()
+            moveinput(x)
+        end)
+        task.wait(updatewait)
+        return readslidernumber(label)
+    end
+
+    local ok = pcall(function()
         begininput(x)
-        began = true
+        task.wait(0.018)
+
+        local minValue = moveandread(left)
+        local maxValue = moveandread(right)
+
+        if minValue == nil or maxValue == nil or minValue == maxValue then
+            return
+        end
+
+        local rangeLow = math.min(minValue, maxValue)
+        local rangeHigh = math.max(minValue, maxValue)
+        local ascending = maxValue > minValue
+
+        -- The wrong slider or label was found. Restore the old value and stop.
+        if wantnum < rangeLow or wantnum > rangeHigh then
+            if originalValue ~= nil and originalValue >= rangeLow and originalValue <= rangeHigh then
+                local restoreRatio
+                if ascending then
+                    restoreRatio = (originalValue - minValue) / (maxValue - minValue)
+                else
+                    restoreRatio = (minValue - originalValue) / (minValue - maxValue)
+                end
+
+                moveandread(left + ((right - left) * math.clamp(restoreRatio, 0, 1)))
+            end
+            return
+        end
+
+        local lowX = left
+        local highX = right
+        local bestX = x
+        local bestValue = readslidernumber(label)
+        local bestDistance = bestValue and math.abs(bestValue - wantnum) or math.huge
+
+        local previousValue = nil
+        local beforePreviousValue = nil
+        local bounceCount = 0
+        local startedAt = os.clock()
+
+        for _ = 1, 16 do
+            if os.clock() - startedAt > 0.8 then
+                break
+            end
+
+            if highX - lowX <= 1 then
+                break
+            end
+
+            local middleX = math.floor((lowX + highX) / 2)
+            local currentValue = moveandread(middleX)
+
+            if currentValue == nil then
+                break
+            end
+
+            local distance = math.abs(currentValue - wantnum)
+            if distance < bestDistance then
+                bestDistance = distance
+                bestValue = currentValue
+                bestX = x
+            end
+
+            if currentValue == wantnum or tostring(label.Text) == wanttxt then
+                bestX = x
+                bestValue = currentValue
+                break
+            end
+
+            -- Detect 11 12 11 12 style bouncing and stop safely.
+            if beforePreviousValue ~= nil and currentValue == beforePreviousValue then
+                bounceCount = bounceCount + 1
+            else
+                bounceCount = 0
+            end
+
+            if bounceCount >= 2 then
+                break
+            end
+
+            beforePreviousValue = previousValue
+            previousValue = currentValue
+
+            if ascending then
+                if currentValue < wantnum then
+                    lowX = middleX + 1
+                else
+                    highX = middleX - 1
+                end
+            else
+                if currentValue > wantnum then
+                    lowX = middleX + 1
+                else
+                    highX = middleX - 1
+                end
+            end
+        end
+
+        -- Finish on the closest value found instead of endlessly correcting.
+        if bestX then
+            moveandread(bestX)
+        end
     end)
 
-    if not began then
-        task.wait(0.05)
+    pcall(function()
+        endinput(x)
+    end)
+
+    if not ok then
+        task.wait(0.012)
         return
     end
 
-    task.wait(0.06)
-
-    local lastValue = readslidernumber(label)
-    local direction = 1
-    local step = math.max(2, math.floor(slider.AbsoluteSize.X / 45))
-    local attempts = 0
-    local unchanged = 0
-
-    while attempts < 180 do
-        currentValue = readslidernumber(label)
-        if currentValue == wantnum or tostring(label.Text) == wanttxt then
-            break
-        end
-
-        if currentValue ~= nil then
-            direction = currentValue > wantnum and -1 or 1
-        end
-
-        local nextX = math.clamp(x + (step * direction), left, right)
-
-        if nextX == x then
-            direction = -direction
-            nextX = math.clamp(x + (step * direction), left, right)
-        end
-
-        x = nextX
-        pcall(function() moveinput(x) end)
-        task.wait(touchmode and 0.025 or 0.012)
-
-        local newValue = readslidernumber(label)
-        if newValue == lastValue then
-            unchanged = unchanged + 1
-        else
-            unchanged = 0
-            lastValue = newValue
-        end
-
-        if unchanged >= 10 then
-            step = math.min(math.max(step + 1, math.floor(slider.AbsoluteSize.X / 25)), 10)
-            unchanged = 0
-        end
-
-        attempts = attempts + 1
-    end
-
-    pcall(function() endinput(x) end)
-    task.wait(0.08)
+    task.wait(0.02)
 end
 
 opentab("Auto", 5)
