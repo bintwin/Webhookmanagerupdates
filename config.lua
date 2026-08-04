@@ -465,12 +465,8 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
         task.wait(0.15)
     end
 
-    local insetY = 0
-    pcall(function()
-        local inset = game:GetService("GuiService"):GetGuiInset()
-        insetY = inset.Y
-    end)
-
+    local insetY = 36
+    
     local barParent = dfrm.Parent
     if not barParent or not barParent:IsA("Frame") then barParent = dfrm end
     local barX = barParent.AbsolutePosition.X
