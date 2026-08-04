@@ -525,48 +525,33 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     task.wait(0.05)
 end
 
+local function getSliderFrameAndLabel(prefix)
+    local f, l = nil, nil
+    pcall(function()
+        for _, obj in pairs(guis.ScreenGui:GetDescendants()) do
+            if obj:IsA("TextLabel") and obj.Text and string.sub(obj.Text, 1, #prefix) == prefix then
+                l = obj
+                if obj.Parent then
+                    local bg = obj.Parent:FindFirstChildWhichIsA("Frame")
+                    if bg then f = bg:FindFirstChildWhichIsA("Frame") or bg end
+                end
+                break
+            end
+        end
+    end)
+    return function() return f end, function() return l end
+end
+
 opentab("Auto", 5)
 
 local blkrange = getcfgnum("Auto Block Range", 19)
-local cntrrange = getcfgnum("Auto Counter Range", 4)
-local dlyval = getcfgnum("Click Delay", 16)
+local f_blk, l_blk = getSliderFrameAndLabel("Auto Block Range")
+fastslider(f_blk, l_blk, "Auto Block Range: " .. tostring(blkrange), blkrange)
 
-if premium_mode then
-    fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
-        "Auto Block Range: " .. tostring(blkrange),
-        blkrange
-    )
-    fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
-        "Auto Counter Range: " .. tostring(cntrrange),
-        cntrrange
-    )
-    fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
-        "Click Delay: " .. tostring(dlyval),
-        dlyval
-    )
-else
-    fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
-        "Auto Block Range: " .. tostring(blkrange),
-        blkrange
-    )
-    fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
-        "Auto Counter Range: " .. tostring(cntrrange),
-        cntrrange
-    )
-    fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].TextLabel end,
-        "Click Delay: " .. tostring(dlyval),
-        dlyval
-    )
-end
+local cntrrange = getcfgnum("Auto Counter Range", 4)
+local f_cntr, l_cntr = getSliderFrameAndLabel("Auto Counter Range")
+fastslider(f_cntr, l_cntr, "Auto Counter Range: " .. tostring(cntrrange), cntrrange)
+
+local dlyval = getcfgnum("Click Delay", 16)
+local f_dly, l_dly = getSliderFrameAndLabel("Click Delay")
+fastslider(f_dly, l_dly, "Click Delay: " .. tostring(dlyval), dlyval)
