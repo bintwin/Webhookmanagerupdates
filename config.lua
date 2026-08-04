@@ -441,6 +441,9 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     if dfrm and dlbl then
         local sx = dfrm.AbsolutePosition.X + (dfrm.AbsoluteSize.X / 2)
         local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + 66
+        local phnchk = false
+        pcall(function() phnchk = game:GetService("UserInputService").TouchEnabled end)
+        if phnchk then sy = sy - 30 end
         if mousemoveabs and mouse1press and mouse1release then
             mousemoveabs(sx, sy)
             task.wait(0.05)
