@@ -453,9 +453,16 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
             while dlbl.Text ~= wanttxt and lim < 100 do
                 local cstr = string.match(dlbl.Text, "%d+")
                 local cnum = cstr and tonumber(cstr) or 0
-                if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
+                local diff = math.abs(cnum - wantnum)
+                local step = 4
+                if diff > 10 then step = 15 elseif diff > 5 then step = 8 end
+                
+                if cnum > wantnum then sx = sx - step else sx = sx + step end
+                
+                if sx < dfrm.AbsolutePosition.X then sx = dfrm.AbsolutePosition.X end
+                if sx > dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X then sx = dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X end
+                
                 mousemoveabs(sx, sy)
-                mouse1press()
                 task.wait(0.01)
                 lim = lim + 1
             end
@@ -468,10 +475,17 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
             while dlbl.Text ~= wanttxt and lim < 100 do
                 local cstr = string.match(dlbl.Text, "%d+")
                 local cnum = cstr and tonumber(cstr) or 0
-                if cnum > wantnum then sx = sx - 4 else sx = sx + 4 end
+                local diff = math.abs(cnum - wantnum)
+                local step = 4
+                if diff > 10 then step = 15 elseif diff > 5 then step = 8 end
+                
+                if cnum > wantnum then sx = sx - step else sx = sx + step end
+                
+                if sx < dfrm.AbsolutePosition.X then sx = dfrm.AbsolutePosition.X end
+                if sx > dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X then sx = dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X end
+                
                 vman:SendMouseMoveEvent(sx, sy, game)
                 pcall(function() vman:SendTouchEvent(0, 1, sx, sy) end)
-                vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
                 task.wait(0.01)
                 lim = lim + 1
             end
