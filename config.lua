@@ -467,16 +467,20 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
 
     local insetY = 36
     
-    local barParent = dfrm.Parent
-    if not barParent or not barParent:IsA("Frame") then barParent = dfrm end
+    local barParent = dfrm
+    if dfrm.Parent and dfrm.Parent:IsA("Frame") then
+        local yDiff = math.abs(dfrm.AbsolutePosition.Y - dfrm.Parent.AbsolutePosition.Y)
+        if yDiff < 5 then
+            barParent = dfrm.Parent
+        end
+    end
+    
     local barX = barParent.AbsolutePosition.X
     local barW = barParent.AbsoluteSize.X
     local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY
 
     local function smartDragToValue()
-        local startX = dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X
-        if startX < barX then startX = barX end
-        if startX > barX + barW then startX = barX + barW end
+        local startX = barX + (barW / 2)
 
         pcall(function() if mousemoveabs then mousemoveabs(startX, sy) end end)
         task.wait(0.01)
