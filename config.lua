@@ -467,17 +467,9 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
 
     local insetY = 36
     
-    local barParent = dfrm
-    if dfrm.Parent and dfrm.Parent:IsA("Frame") then
-        local yDiff = math.abs(dfrm.AbsolutePosition.Y - dfrm.Parent.AbsolutePosition.Y)
-        if yDiff < 5 then
-            barParent = dfrm.Parent
-        end
-    end
-    
-    local barX = barParent.AbsolutePosition.X
-    local barW = barParent.AbsoluteSize.X
-    local sy = barParent.AbsolutePosition.Y + (barParent.AbsoluteSize.Y / 2) + insetY + 12
+    local barX = dfrm.AbsolutePosition.X
+    local barW = dfrm.AbsoluteSize.X
+    local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + insetY
 
     local function smartDragToValue()
         local startX = barX + (barW / 2)
@@ -547,7 +539,7 @@ opentab("Auto", 5)
 local blkrange = getcfgnum("Auto Block Range", 19)
 if premium_mode then
     fastslider(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
         "Auto Block Range: " .. tostring(blkrange),
         blkrange
