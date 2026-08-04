@@ -508,7 +508,130 @@ local function readslidernumber(label)
     return value and tonumber(value) or nil
 end
 
-local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
+local function findsliderlabel(prefix)
+    local wanted = string.lower(tostring(prefix))
+
+    for _, obj in pairs(guis:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local txt = string.lower(tostring(obj.Text or ""))
+            if string.sub(txt, 1, #wanted) == wanted then
+                return obj
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getslidertrackfromlabel(label, fallbackfunc)
+    if not label or not label:IsA("GuiObject") then
+        local fallback = nil
+        pcall(function() fallback = fallbackfunc and fallbackfunc() end)
+        return fallback
+    end
+
+    local fallback = nil
+    pcall(function() fallback = fallbackfunc and fallbackfunc() end)
+
+    local labelX = label.AbsolutePosition.X
+    local labelY = label.AbsolutePosition.Y
+    local labelW = label.AbsoluteSize.X
+    local labelH = label.AbsoluteSize.Y
+    local labelCenterY = labelY + (labelH / 2)
+
+    local best = nil
+    local bestScore = -math.huge
+    local ancestor = label.Parent
+    local depth = 0
+
+    while ancestor and ancestor ~= game and depth < 5 do
+        for _, obj in pairs(ancestor:GetDescendants()) do
+            if obj:IsA("GuiObject")
+                and obj ~= label
+                and obj.Visible
+                and not obj:IsA("TextLabel")
+                and not obj:IsA("TextButton") then
+
+                local width = obj.AbsoluteSize.X
+                local height = obj.AbsoluteSize.Y
+                local x = obj.AbsolutePosition.X
+                local y = obj.AbsolutePosition.Y
+                local centerY = y + (height / 2)
+
+                if width >= 35 and height >= 2 and height <= 42 then
+                    local horizontalOverlap = math.min(x + width, labelX + labelW) - math.max(x, labelX)
+                    local yDifference = centerY - labelCenterY
+
+                    if horizontalOverlap > 8 and yDifference >= -4 and yDifference <= 85 then
+                        local score = 0
+                        local lowerName = string.lower(obj.Name)
+
+                        score = score + math.min(width, 300) / 8
+                        score = score + math.max(0, 35 - height)
+                        score = score - math.abs(yDifference - 24)
+
+                        if string.find(lowerName, "slider", 1, true) then score = score + 100 end
+                        if string.find(lowerName, "track", 1, true) then score = score + 90 end
+                        if string.find(lowerName, "bar", 1, true) then score = score + 70 end
+                        if string.find(lowerName, "fill", 1, true) then score = score - 20 end
+                        if string.find(lowerName, "knob", 1, true) then score = score - 30 end
+                        if string.find(lowerName, "thumb", 1, true) then score = score - 30 end
+
+                        if obj:IsA("ImageButton") then score = score + 12 end
+                        if obj.Active then score = score + 12 end
+
+                        local hasSmallChild = false
+                        for _, child in pairs(obj:GetChildren()) do
+                            if child:IsA("GuiObject") and child.AbsoluteSize.X < width then
+                                hasSmallChild = true
+                                break
+                            end
+                        end
+                        if hasSmallChild then score = score + 20 end
+
+                        if fallback and obj == fallback then score = score + 25 end
+
+                        if score > bestScore then
+                            best = obj
+                            bestScore = score
+                        end
+                    end
+                end
+            end
+        end
+
+        ancestor = ancestor.Parent
+        depth = depth + 1
+    end
+
+    return best or fallback
+end
+
+local fastslider
+
+local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, wantnum)
+    local label = findsliderlabel(prefix)
+
+    if not label then
+        pcall(function()
+            if fallbacklabelfunc then
+                label = fallbacklabelfunc()
+            end
+        end)
+    end
+
+    local slider = getslidertrackfromlabel(label, fallbacksliderfunc)
+    local wantedText = tostring(prefix) .. ": " .. tostring(wantnum)
+
+    fastslider(
+        function() return slider end,
+        function() return label end,
+        wantedText,
+        wantnum
+    )
+end
+
+fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     local slider = nil
     local label = nil
 
@@ -662,24 +785,24 @@ local cntrrange = getcfgnum("Auto Counter Range", 4)
 local dlyval = getcfgnum("Click Delay", 16)
 
 if premium_mode then
-    fastslider(
+    fastsliderbylabel(
+        "Auto Block Range",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
-        "Auto Block Range: " .. tostring(blkrange),
         blkrange
     )
 
-    fastslider(
+    fastsliderbylabel(
+        "Auto Counter Range",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
-        "Auto Counter Range: " .. tostring(cntrrange),
         cntrrange
     )
 
-    fastslider(
+    fastsliderbylabel(
+        "Click Delay",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
-        "Click Delay: " .. tostring(dlyval),
         dlyval
     )
 else
