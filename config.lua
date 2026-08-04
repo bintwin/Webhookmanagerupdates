@@ -447,47 +447,51 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
         insetY = inset.Y
     end)
 
-    local sx = dfrm.AbsolutePosition.X + (dfrm.AbsoluteSize.X / 2)
+    local barParent = dfrm.Parent
+    if not barParent then barParent = dfrm end
+    local barX = dfrm.AbsolutePosition.X
+    local barW = dfrm.AbsoluteSize.X
     local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + insetY
 
-    vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
-    pcall(function() vman:SendTouchEvent(0, 0, sx, sy) end)
-    pcall(function()
-        if type(firetouchinterest) == "function" then
-            firetouchinterest(dfrm, Vector2.new(sx, sy), 0)
-        end
-    end)
-    task.wait(0.05)
+    local function tapAt(tx)
+        vman:SendMouseButtonEvent(tx, sy, 0, true, game, 1)
+        task.wait(0.015)
+        vman:SendMouseMoveEvent(tx, sy, game)
+        task.wait(0.015)
+        vman:SendMouseButtonEvent(tx, sy, 0, false, game, 1)
+        pcall(function() vman:SendTouchEvent(0, 0, tx, sy) end)
+        task.wait(0.015)
+        pcall(function() vman:SendTouchEvent(0, 1, tx, sy) end)
+        task.wait(0.015)
+        pcall(function() vman:SendTouchEvent(0, 2, tx, sy) end)
+    end
 
     local lim = 0
-    while dlbl.Text ~= wanttxt and lim < 120 do
+    while dlbl.Text ~= wanttxt and lim < 60 do
         local cstr = string.match(dlbl.Text, "%d+")
         local cnum = cstr and tonumber(cstr) or 0
         if cnum == wantnum then break end
-        local diff = math.abs(cnum - wantnum)
-        local step = 2
-        if diff > 10 then step = 12 elseif diff > 5 then step = 6 end
-        if cnum > wantnum then sx = sx - step else sx = sx + step end
-        if sx < dfrm.AbsolutePosition.X then sx = dfrm.AbsolutePosition.X end
-        if sx > dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X then sx = dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X end
-        vman:SendMouseMoveEvent(sx, sy, game)
-        pcall(function() vman:SendTouchEvent(0, 1, sx, sy) end)
-        pcall(function()
-            if type(firetouchinterest) == "function" then
-                firetouchinterest(dfrm, Vector2.new(sx, sy), 1)
-            end
-        end)
-        task.wait(0.01)
+
+        local ratio = wantnum / 50
+        if ratio > 1 then ratio = 1 end
+        if ratio < 0 then ratio = 0 end
+        local tx = barX + (barW * ratio)
+        tapAt(tx)
+        task.wait(0.08)
+
+        local newstr = string.match(dlbl.Text, "%d+")
+        local newnum = newstr and tonumber(newstr) or cnum
+        if newnum == cnum and lim > 3 then
+            local nudge = 0.02 * lim
+            if cnum > wantnum then ratio = ratio - nudge else ratio = ratio + nudge end
+            if ratio > 1 then ratio = 1 end
+            if ratio < 0 then ratio = 0 end
+            tx = barX + (barW * ratio)
+            tapAt(tx)
+            task.wait(0.08)
+        end
         lim = lim + 1
     end
-
-    vman:SendMouseButtonEvent(sx, sy, 0, false, game, 1)
-    pcall(function() vman:SendTouchEvent(0, 2, sx, sy) end)
-    pcall(function()
-        if type(firetouchinterest) == "function" then
-            firetouchinterest(dfrm, Vector2.new(sx, sy), 2)
-        end
-    end)
     task.wait(0.05)
 end
 
