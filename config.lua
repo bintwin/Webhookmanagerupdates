@@ -318,8 +318,14 @@ opentab("Auto", 5)
 
 if chkdo("Auto Counter") then
     local cntrbtn = getbtnany("Auto Counter", function()
-        return getlblparent("Auto Counter")
+        return getlblparent("Auto Counter", function()
+            if premium_mode then return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9]
+            else return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end
+        end)
     end)
+    if not cntrbtn then
+        pcall(function() cntrbtn = premium_mode and guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] or guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[9] end)
+    end
     if cntrbtn and not isbtnenabled(cntrbtn) then
         clickybtn(cntrbtn)
         task.wait(0.05)
@@ -327,13 +333,19 @@ if chkdo("Auto Counter") then
 end
 
 local fastbtnlist = {
-    {"Side Dash Assist", function() return getlblparent("Side Dash Assist") end},
-    {"Auto Block", function() return getlblparent("Auto Block") end},
-    {"Auto Punish", function() return getlblparent("Auto Punish") end},
-    {"Locked On Players Only", function() return getlblparent("Locked On Players") end},
-    {"Auto BlackFlash Chain Only", function() return getlblparent("Auto BlackFlash Chain") end},
-    {"Auto QTE Minigame Click Only", function() return getlblparent("Auto QTE Minigame Click") end},
-    {"Auto Hiromi Guess Domain Only", function() return getlblparent("Auto Hiromi Guess Domain") end}
+    {"Side Dash Assist", function() return getlblparent("Side Dash Assist", function() return guis.ScreenGui.Frame.Frame:GetChildren()[3]:GetChildren()[7] end) end},
+    {"Auto Block", function() return getlblparent("Auto Block", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].TextButton end) end},
+    {"Auto Punish", function() return getlblparent("Auto Punish", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[7] end) end},
+    {"Locked On Players Only", function() return getlblparent("Locked On Players", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[11] end) end},
+    {"Auto BlackFlash Chain Only", function() return getlblparent("Auto BlackFlash Chain", function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[13] end) end},
+    {"Auto QTE Minigame Click Only", function() return getlblparent("Auto QTE Minigame Click", function()
+        if premium_mode then return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[18]
+        else return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[14] end
+    end) end},
+    {"Auto Hiromi Guess Domain Only", function() return getlblparent("Auto Hiromi Guess Domain", function()
+        if premium_mode then return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[20]
+        else return nil end
+    end) end}
 }
 
 for _, item in pairs(fastbtnlist) do
@@ -509,30 +521,46 @@ end
 
 opentab("Auto", 5)
 
-local function getSliderFrameAndLabel(prefix)
-    local f, l = nil, nil
-    pcall(function()
-        for _, obj in pairs(guis.ScreenGui:GetDescendants()) do
-            if obj:IsA("TextLabel") and obj.Text and string.sub(obj.Text, 1, #prefix) == prefix then
-                l = obj
-                if obj.Parent then
-                    f = obj.Parent:FindFirstChildWhichIsA("Frame")
-                end
-                break
-            end
-        end
-    end)
-    return function() return f end, function() return l end
-end
-
 local blkrange = getcfgnum("Auto Block Range", 19)
-local f_blk, l_blk = getSliderFrameAndLabel("Auto Block Range")
-fastslider(f_blk, l_blk, "Auto Block Range: " .. tostring(blkrange), blkrange)
-
 local cntrrange = getcfgnum("Auto Counter Range", 4)
-local f_cntr, l_cntr = getSliderFrameAndLabel("Auto Counter Range")
-fastslider(f_cntr, l_cntr, "Auto Counter Range: " .. tostring(cntrrange), cntrrange)
-
 local dlyval = getcfgnum("Click Delay", 16)
-local f_dly, l_dly = getSliderFrameAndLabel("Click Delay")
-fastslider(f_dly, l_dly, "Click Delay: " .. tostring(dlyval), dlyval)
+
+if premium_mode then
+    fastslider(
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
+        "Auto Block Range: " .. tostring(blkrange),
+        blkrange
+    )
+    fastslider(
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
+        "Auto Counter Range: " .. tostring(cntrrange),
+        cntrrange
+    )
+    fastslider(
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
+        "Click Delay: " .. tostring(dlyval),
+        dlyval
+    )
+else
+    fastslider(
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
+        "Auto Block Range: " .. tostring(blkrange),
+        blkrange
+    )
+    fastslider(
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
+        "Auto Counter Range: " .. tostring(cntrrange),
+        cntrrange
+    )
+    fastslider(
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].TextLabel end,
+        "Click Delay: " .. tostring(dlyval),
+        dlyval
+    )
+end
