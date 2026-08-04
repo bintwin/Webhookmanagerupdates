@@ -420,97 +420,74 @@ local function fastslider(frmfunc, lblfunc, wanttxt, wantnum)
     end)
     if not dfrm or not dlbl then return end
 
-    local sliderbar = nil
+    local sf = nil
     pcall(function()
-        sliderbar = dfrm.Parent
-        if not sliderbar or not sliderbar:IsA("Frame") then sliderbar = dfrm end
+        local curr = dfrm
+        while curr and curr ~= game do
+            if curr:IsA("ScrollingFrame") then
+                sf = curr
+                break
+            end
+            curr = curr.Parent
+        end
+    end)
+    if not sf then
+        pcall(function() sf = guis.ScreenGui.Frame.Frame:GetChildren()[4] end)
+    end
+    if sf and sf:IsA("ScrollingFrame") then
+        local tgY = dfrm.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - (sf.AbsoluteWindowSize.Y / 2)
+        if tgY < 0 then tgY = 0 end
+        sf.CanvasPosition = Vector2.new(0, tgY)
+        task.wait(0.15)
+    end
+
+    local insetY = 0
+    pcall(function()
+        local inset = game:GetService("GuiService"):GetGuiInset()
+        insetY = inset.Y
     end)
 
-    local function fakeInput(px, py, state)
-        local inp = {
-            UserInputType = Enum.UserInputType.MouseButton1,
-            UserInputState = state,
-            Position = Vector3.new(px, py, 0)
-        }
-        setmetatable(inp, {__index = function(_, k)
-            if k == "UserInputType" then return Enum.UserInputType.MouseButton1 end
-            if k == "UserInputState" then return state end
-            if k == "Position" then return Vector3.new(px, py, 0) end
-            return nil
-        end})
-        return inp
-    end
+    local sx = dfrm.AbsolutePosition.X + (dfrm.AbsoluteSize.X / 2)
+    local sy = dfrm.AbsolutePosition.Y + (dfrm.AbsoluteSize.Y / 2) + insetY
 
-    local function tryFireConns(tgt, px, py)
-        local fired = false
-        pcall(function()
-            if type(getconnections) ~= "function" then return end
-            local beginInp = fakeInput(px, py, Enum.UserInputState.Begin)
-            for _, c in pairs(getconnections(tgt.InputBegan)) do
-                pcall(function() c:Fire(beginInp) end)
-                fired = true
-            end
-            task.wait(0.02)
-            local changeInp = fakeInput(px, py, Enum.UserInputState.Changed)
-            for _, c in pairs(getconnections(tgt.InputChanged)) do
-                pcall(function() c:Fire(changeInp) end)
-                fired = true
-            end
-            task.wait(0.02)
-            local endInp = fakeInput(px, py, Enum.UserInputState.End)
-            for _, c in pairs(getconnections(tgt.InputEnded)) do
-                pcall(function() c:Fire(endInp) end)
-            end
-        end)
-        return fired
-    end
+    vman:SendMouseButtonEvent(sx, sy, 0, true, game, 1)
+    pcall(function() vman:SendTouchEvent(0, 0, sx, sy) end)
+    pcall(function()
+        if type(firetouchinterest) == "function" then
+            firetouchinterest(dfrm, Vector2.new(sx, sy), 0)
+        end
+    end)
+    task.wait(0.05)
 
-    local function calcTargetX(ratio)
-        return sliderbar.AbsolutePosition.X + (sliderbar.AbsoluteSize.X * ratio)
-    end
-
-    local midY = sliderbar.AbsolutePosition.Y + (sliderbar.AbsoluteSize.Y / 2)
     local lim = 0
-    while dlbl.Text ~= wanttxt and lim < 80 do
+    while dlbl.Text ~= wanttxt and lim < 120 do
         local cstr = string.match(dlbl.Text, "%d+")
         local cnum = cstr and tonumber(cstr) or 0
         if cnum == wantnum then break end
-
-        local ratio = wantnum / 50
-        if ratio > 1 then ratio = 1 end
-        if ratio < 0 then ratio = 0 end
-        local tx = calcTargetX(ratio)
-
-        local didFire = tryFireConns(sliderbar, tx, midY)
-        if not didFire then
-            didFire = tryFireConns(dfrm, tx, midY)
-        end
-        if not didFire then
-            pcall(function()
-                for _, ch in pairs(sliderbar:GetChildren()) do
-                    if ch:IsA("Frame") or ch:IsA("TextButton") or ch:IsA("ImageButton") then
-                        tryFireConns(ch, tx, midY)
-                    end
-                end
-            end)
-        end
-
-        task.wait(0.05)
-
-        local newstr = string.match(dlbl.Text, "%d+")
-        local newnum = newstr and tonumber(newstr) or cnum
-        if newnum == cnum then
-            if cnum > wantnum then ratio = ratio - 0.05 else ratio = ratio + 0.05 end
-            if ratio > 1 then ratio = 1 end
-            if ratio < 0 then ratio = 0 end
-            tx = calcTargetX(ratio)
-            tryFireConns(sliderbar, tx, midY)
-            tryFireConns(dfrm, tx, midY)
-            task.wait(0.05)
-        end
-
+        local diff = math.abs(cnum - wantnum)
+        local step = 2
+        if diff > 10 then step = 12 elseif diff > 5 then step = 6 end
+        if cnum > wantnum then sx = sx - step else sx = sx + step end
+        if sx < dfrm.AbsolutePosition.X then sx = dfrm.AbsolutePosition.X end
+        if sx > dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X then sx = dfrm.AbsolutePosition.X + dfrm.AbsoluteSize.X end
+        vman:SendMouseMoveEvent(sx, sy, game)
+        pcall(function() vman:SendTouchEvent(0, 1, sx, sy) end)
+        pcall(function()
+            if type(firetouchinterest) == "function" then
+                firetouchinterest(dfrm, Vector2.new(sx, sy), 1)
+            end
+        end)
+        task.wait(0.01)
         lim = lim + 1
     end
+
+    vman:SendMouseButtonEvent(sx, sy, 0, false, game, 1)
+    pcall(function() vman:SendTouchEvent(0, 2, sx, sy) end)
+    pcall(function()
+        if type(firetouchinterest) == "function" then
+            firetouchinterest(dfrm, Vector2.new(sx, sy), 2)
+        end
+    end)
     task.wait(0.05)
 end
 
