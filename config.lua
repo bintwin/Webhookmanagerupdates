@@ -89,6 +89,35 @@ local inputman = game:GetService("UserInputService")
 local guiservice = game:GetService("GuiService")
 local touchmode = inputman.TouchEnabled
 
+local function gettouchcoords(guiobj, x, y)
+    if not touchmode then
+        return math.floor(x + 0.5), math.floor(y + 0.5)
+    end
+
+    local addInset = true
+    local screenGui = guiobj
+
+    while screenGui and screenGui ~= game do
+        if screenGui:IsA("ScreenGui") then
+            pcall(function()
+                addInset = not screenGui.IgnoreGuiInset
+            end)
+            break
+        end
+        screenGui = screenGui.Parent
+    end
+
+    if addInset then
+        pcall(function()
+            local topLeftInset = guiservice:GetGuiInset()
+            x = x + topLeftInset.X
+            y = y + topLeftInset.Y
+        end)
+    end
+
+    return math.floor(x + 0.5), math.floor(y + 0.5)
+end
+
 local function getguicenter(guiobj)
     if not guiobj or not guiobj:IsA("GuiObject") then return nil, nil end
 
@@ -164,9 +193,10 @@ local function clickybtn(b)
 
     if touchmode then
         pcall(function()
-            vman:SendTouchEvent(0, 0, x, y)
+            local touchX, touchY = gettouchcoords(b, x, y)
+            vman:SendTouchEvent(0, 0, touchX, touchY)
             task.wait(0.04)
-            vman:SendTouchEvent(0, 2, x, y)
+            vman:SendTouchEvent(0, 2, touchX, touchY)
             worked = true
         end)
     end
@@ -695,7 +725,8 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function begininput(px)
         if touchmode then
-            vman:SendTouchEvent(touchId, 0, px, y)
+            local touchX, touchY = gettouchcoords(slider, px, y)
+            vman:SendTouchEvent(touchId, 0, touchX, touchY)
         else
             vman:SendMouseMoveEvent(px, y, game)
             vman:SendMouseButtonEvent(px, y, 0, true, game, 1)
@@ -704,7 +735,8 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function moveinput(px)
         if touchmode then
-            vman:SendTouchEvent(touchId, 1, px, y)
+            local touchX, touchY = gettouchcoords(slider, px, y)
+            vman:SendTouchEvent(touchId, 1, touchX, touchY)
         else
             vman:SendMouseMoveEvent(px, y, game)
         end
@@ -712,7 +744,8 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function endinput(px)
         if touchmode then
-            vman:SendTouchEvent(touchId, 2, px, y)
+            local touchX, touchY = gettouchcoords(slider, px, y)
+            vman:SendTouchEvent(touchId, 2, touchX, touchY)
         else
             vman:SendMouseButtonEvent(px, y, 0, false, game, 1)
         end
@@ -785,24 +818,24 @@ local cntrrange = getcfgnum("Auto Counter Range", 4)
 local dlyval = getcfgnum("Click Delay", 16)
 
 if premium_mode then
-    fastsliderbylabel(
-        "Auto Block Range",
+    fastslider(
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
+        "Auto Block Range: " .. tostring(blkrange),
         blkrange
     )
 
-    fastsliderbylabel(
-        "Auto Counter Range",
+    fastslider(
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
+        "Auto Counter Range: " .. tostring(cntrrange),
         cntrrange
     )
 
-    fastsliderbylabel(
-        "Click Delay",
+    fastslider(
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
+        "Click Delay: " .. tostring(dlyval),
         dlyval
     )
 else
