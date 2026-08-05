@@ -967,12 +967,40 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local vu = game:GetService("VirtualUser")
 
+    local function firesig(obj, sigName, itype, state, px, py)
+        local getconn = getconnections or get_signal_cons
+        if not getconn or not obj then return end
+        pcall(function()
+            local fakeInput = {
+                UserInputType = itype,
+                UserInputState = state,
+                Position = Vector3.new(px, py, 0),
+                KeyCode = Enum.KeyCode.Unknown,
+                Delta = Vector3.new(0, 0, 0)
+            }
+            local sig = obj[sigName]
+            for _, conn in pairs(getconn(sig)) do
+                pcall(function() conn:Fire(fakeInput) end)
+                if type(conn.Function) == "function" then
+                    pcall(function() conn.Function(fakeInput) end)
+                end
+            end
+        end)
+    end
+
     local function begininput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
         pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
         pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
         pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
         pcall(function() vu:Button1Down(Vector2.new(px, vim_y)) end)
+        
+        firesig(slider, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, vim_y)
+        firesig(slider, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, vim_y)
+        if slider.Parent then
+            firesig(slider.Parent, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, vim_y)
+            firesig(slider.Parent, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, vim_y)
+        end
     end
 
     local function updateinput(px)
@@ -980,6 +1008,13 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
         pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
         pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
         pcall(function() vu:MoveMouse(Vector2.new(px, vim_y)) end)
+        
+        firesig(slider, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, vim_y)
+        firesig(slider, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, vim_y)
+        if slider.Parent then
+            firesig(slider.Parent, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, vim_y)
+            firesig(slider.Parent, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, vim_y)
+        end
     end
 
     local function endinput(px)
@@ -988,6 +1023,13 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
         pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
         pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
         pcall(function() vu:Button1Up(Vector2.new(px, vim_y)) end)
+        
+        firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, vim_y)
+        firesig(slider, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, vim_y)
+        if slider.Parent then
+            firesig(slider.Parent, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, vim_y)
+            firesig(slider.Parent, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, vim_y)
+        end
     end
 
     local began = false
