@@ -1790,19 +1790,28 @@ local function dragslideronce(guiObject, startX, startY, finishX, finishY)
 end
 
 
--- Auto Block Range uses its exact supplied path and a known 0 to 20 range.
--- It does not use the generic slider guessing or binary-search code.
+-- Auto Block Range uses the exact supplied premium or free path.
+-- It holds the real slider once and moves by label feedback until the exact value is shown.
 local function setautoblockrange(rootfunc, labelfunc, wanted)
-    if type(wanted) ~= "number" then return end
+    if type(wanted) ~= "number" then return false end
 
-    wanted = math.clamp(wanted, 0, 20)
+    wanted = math.floor(math.clamp(wanted, 0, 20) + 0.5)
 
     local suppliedRoot = getsafeobject(rootfunc)
-    local label = findsliderlabel("Auto Block Range", labelfunc)
+    local label = getsafeobject(labelfunc)
 
-    if not suppliedRoot or not label then
-        return
+    if not suppliedRoot or not label
+        or not (label:IsA("TextLabel") or label:IsA("TextButton")) then
+        return false
     end
+
+    local currentValue = readslidernumber(label)
+    if currentValue == wanted then
+        return true
+    end
+
+    local scrolling, oldCanvasPosition = bringintoviewtemporarily(suppliedRoot)
+    task.wait(touchmode and 0.065 or 0.04)
 
     local function isHorizontal(object)
         if not object or not object:IsA("GuiObject") then return false end
@@ -1812,12 +1821,13 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
 
         return width >= 40
             and height >= 2
-            and height <= 32
+            and height <= 30
             and width >= height * 3
     end
 
-    -- The path may point at the fill. When its parent is a wider horizontal
-    -- frame on the same line, the parent is the full slider track.
+    -- The supplied object can be the fill or the knob. Use it directly unless
+    -- its immediate parent is a wider bar on the exact same line. Never walk
+    -- farther upward because that can select the whole settings row.
     local track = suppliedRoot
     local parent = suppliedRoot.Parent
 
@@ -1825,13 +1835,11 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
         local rootCenterY = suppliedRoot.AbsolutePosition.Y + suppliedRoot.AbsoluteSize.Y / 2
         local parentCenterY = parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2
 
-        if math.abs(rootCenterY - parentCenterY) <= 10
-            and parent.AbsoluteSize.X >= suppliedRoot.AbsoluteSize.X + 8 then
+        if math.abs(rootCenterY - parentCenterY) <= 8
+            and parent.AbsoluteSize.X >= suppliedRoot.AbsoluteSize.X + 6 then
             track = parent
         end
-    end
-
-    if not isHorizontal(track) then
+    elseif not isHorizontal(track) then
         local best = nil
         local bestWidth = 0
 
@@ -1844,72 +1852,201 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
 
         if best then
             track = best
-        elseif isHorizontal(suppliedRoot.Parent) then
-            track = suppliedRoot.Parent
-        else
-            return
         end
     end
 
-    local currentValue = readslidernumber(label)
-    if currentValue == wanted then
-        return
+    if not isHorizontal(track) then
+        restorescroll(scrolling, oldCanvasPosition)
+        return false
     end
 
-    local knob = findsliderknob(track, track.Parent)
+    local knob = findsliderknob(track, track)
+    if not knob and suppliedRoot.AbsoluteSize.X <= 34 and suppliedRoot.AbsoluteSize.Y <= 34 then
+        knob = suppliedRoot
+    end
+
     local knobRadius = knob and math.max(2, knob.AbsoluteSize.X / 2) or 3
     local left = track.AbsolutePosition.X + knobRadius
     local right = track.AbsolutePosition.X + track.AbsoluteSize.X - knobRadius
-    local y = track.AbsolutePosition.Y + track.AbsoluteSize.Y / 2
+    local y = knob
+        and (knob.AbsolutePosition.Y + knob.AbsoluteSize.Y / 2)
+        or (suppliedRoot.AbsolutePosition.Y + suppliedRoot.AbsoluteSize.Y / 2)
 
     if right - left < 20 then
-        return
+        restorescroll(scrolling, oldCanvasPosition)
+        return false
     end
 
-    local function valueToX(value)
-        return left + (math.clamp(value, 0, 20) / 20) * (right - left)
-    end
+    currentValue = readslidernumber(label)
 
-    local startX
+    local x = nil
     if knob then
-        startX = knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2
+        x = knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2
     elseif currentValue ~= nil then
-        startX = valueToX(currentValue)
+        x = left + (math.clamp(currentValue, 0, 20) / 20) * (right - left)
     else
-        startX = left
+        x = suppliedRoot.AbsolutePosition.X + suppliedRoot.AbsoluteSize.X / 2
     end
 
-    local targetX = valueToX(wanted)
+    x = math.clamp(x, left, right)
 
-    if not dragslideronce(track, startX, y, targetX, y) then
-        return
+    -- Virtual input uses screen coordinates. Add the Roblox inset only when
+    -- this ScreenGui does not ignore it.
+    local function geteventcoords(rawX, rawY)
+        local finalX = rawX
+        local finalY = rawY
+        local addInset = true
+        local screenGui = suppliedRoot
+
+        while screenGui and screenGui ~= game do
+            if screenGui:IsA("ScreenGui") then
+                pcall(function()
+                    addInset = not screenGui.IgnoreGuiInset
+                end)
+                break
+            end
+            screenGui = screenGui.Parent
+        end
+
+        if addInset then
+            pcall(function()
+                local topLeftInset = guiservice:GetGuiInset()
+                finalX = finalX + topLeftInset.X
+                finalY = finalY + topLeftInset.Y
+            end)
+        end
+
+        return math.floor(finalX + 0.5), math.floor(finalY + 0.5)
     end
 
-    local newValue = waitforvaluechange(
-        label,
-        currentValue,
-        touchmode and 0.18 or 0.12
-    )
+    local held = false
+    local usingExecutorMouse = not touchmode
+        and type(mousemoveabs) == "function"
+        and type(mouse1press) == "function"
+        and type(mouse1release) == "function"
 
-    if newValue == wanted or newValue == nil then
-        return
+    local lastInputX, lastInputY = geteventcoords(x, y)
+
+    local function beginhold(rawX, rawY)
+        local inputX, inputY = geteventcoords(rawX, rawY)
+        lastInputX, lastInputY = inputX, inputY
+
+        if touchmode then
+            vman:SendTouchEvent(0, 0, inputX, inputY)
+        elseif usingExecutorMouse then
+            mousemoveabs(inputX, inputY)
+            task.wait(0.012)
+            mouse1press()
+        else
+            vman:SendMouseMoveEvent(inputX, inputY, game)
+            vman:SendMouseButtonEvent(inputX, inputY, 0, true, game, 1)
+        end
+
+        held = true
     end
 
-    -- One small correction only. This keeps it stable on mobile and avoids
-    -- the old endless back-and-forth movement.
-    local correction = ((wanted - newValue) / 20) * (right - left)
-    if math.abs(correction) < 1 then
-        return
+    local function movehold(rawX, rawY)
+        local inputX, inputY = geteventcoords(rawX, rawY)
+        lastInputX, lastInputY = inputX, inputY
+
+        if touchmode then
+            vman:SendTouchEvent(0, 1, inputX, inputY)
+        elseif usingExecutorMouse then
+            mousemoveabs(inputX, inputY)
+        else
+            vman:SendMouseMoveEvent(inputX, inputY, game)
+        end
     end
 
-    local liveKnob = findsliderknob(track, track.Parent)
-    local correctionStartX = liveKnob
-        and (liveKnob.AbsolutePosition.X + liveKnob.AbsoluteSize.X / 2)
-        or targetX
-    local correctionTargetX = math.clamp(correctionStartX + correction, left, right)
+    local function endhold()
+        if not held then return end
 
-    dragslideronce(track, correctionStartX, y, correctionTargetX, y)
-    task.wait(touchmode and 0.04 or 0.025)
+        pcall(function()
+            if touchmode then
+                vman:SendTouchEvent(0, 2, lastInputX, lastInputY)
+            elseif usingExecutorMouse then
+                mouse1release()
+            else
+                vman:SendMouseButtonEvent(lastInputX, lastInputY, 0, false, game, 1)
+            end
+        end)
+
+        held = false
+    end
+
+    local ok = pcall(function()
+        beginhold(x, y)
+        task.wait(touchmode and 0.025 or 0.018)
+
+        local lastValue = readslidernumber(label)
+        local unchangedMoves = 0
+        local maximumMoves = touchmode and 65 or 80
+
+        for _ = 1, maximumMoves do
+            local value = readslidernumber(label)
+            if value == wanted then
+                break
+            end
+
+            if value == nil then
+                value = lastValue
+            end
+
+            if value == nil then
+                break
+            end
+
+            local difference = wanted - value
+            local stepSize
+
+            if math.abs(difference) <= 1 then
+                stepSize = 1
+            elseif math.abs(difference) <= 3 then
+                stepSize = 2
+            else
+                stepSize = 4
+            end
+
+            local nextX = math.clamp(
+                x + (difference > 0 and stepSize or -stepSize),
+                left,
+                right
+            )
+
+            if math.abs(nextX - x) < 0.5 then
+                break
+            end
+
+            x = nextX
+            movehold(x, y)
+            task.wait(touchmode and 0.018 or 0.011)
+
+            local newValue = readslidernumber(label)
+            if newValue == lastValue then
+                unchangedMoves = unchangedMoves + 1
+            else
+                unchangedMoves = 0
+                lastValue = newValue
+            end
+
+            -- A few one-pixel moves may be needed before a rounded value changes.
+            -- Stop safely if this is not the slider instead of moving another GUI row.
+            if unchangedMoves >= 12 then
+                break
+            end
+        end
+    end)
+
+    endhold()
+    restorescroll(scrolling, oldCanvasPosition)
+
+    if not ok then
+        releasemouse(lastInputX, lastInputY)
+        return false
+    end
+
+    task.wait(touchmode and 0.035 or 0.02)
+    return readslidernumber(label) == wanted
 end
 
 local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
@@ -2066,6 +2203,7 @@ local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
 end
 
 opentab("Auto", 5)
+task.wait(touchmode and 0.07 or 0.04)
 
 local blkrange = getcfgnum("Auto Block Range", 19)
 local cntrrange = getcfgnum("Auto Counter Range", 4)
