@@ -952,31 +952,43 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     local x = math.clamp(math.floor(slider.AbsolutePosition.X + (slider.AbsoluteSize.X / 2)), left, right)
     local touchId = 0
 
+    local function getvimy(guiObject, base_y)
+        local screenGui = guiObject:FindFirstAncestorOfClass("ScreenGui")
+        if screenGui and not screenGui.IgnoreGuiInset then
+            local inset = game:GetService("GuiService"):GetGuiInset()
+            return base_y + inset.Y
+        end
+        return base_y
+    end
+
+    local vim_y = getvimy(slider, y)
+
     local function begininput(px)
         if touchmode then
-            local touchX, touchY = gettouchcoords(slider, px, y)
+            local touchX, touchY = gettouchcoords(slider, px, vim_y)
             vman:SendTouchEvent(touchId, 0, touchX, touchY)
         else
-            vman:SendMouseMoveEvent(px, y, game)
-            vman:SendMouseButtonEvent(px, y, 0, true, game, 1)
+            vman:SendMouseMoveEvent(px, vim_y, game)
+            vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1)
         end
     end
 
     local function moveinput(px)
         if touchmode then
-            local touchX, touchY = gettouchcoords(slider, px, y)
+            local touchX, touchY = gettouchcoords(slider, px, vim_y)
             vman:SendTouchEvent(touchId, 1, touchX, touchY)
         else
-            vman:SendMouseMoveEvent(px, y, game)
+            vman:SendMouseMoveEvent(px, vim_y, game)
         end
     end
 
     local function endinput(px)
         if touchmode then
-            local touchX, touchY = gettouchcoords(slider, px, y)
+            local touchX, touchY = gettouchcoords(slider, px, vim_y)
             vman:SendTouchEvent(touchId, 2, touchX, touchY)
         else
-            vman:SendMouseButtonEvent(px, y, 0, false, game, 1)
+            vman:SendMouseMoveEvent(px, vim_y, game)
+            vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1)
         end
     end
 
