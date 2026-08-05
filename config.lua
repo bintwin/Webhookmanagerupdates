@@ -864,6 +864,7 @@ local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, 
     print("[DEBUG] Searching for slider: " .. tostring(prefix))
     if label then
         print("[DEBUG] Found label at: " .. getFullPath(label))
+        print("[DEBUG] Label POS: " .. tostring(label.AbsolutePosition) .. " SIZE: " .. tostring(label.AbsoluteSize))
         switchtab4obj(label)
     else
         print("[DEBUG] Label NOT found for: " .. tostring(prefix))
@@ -875,6 +876,7 @@ local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, 
     local slider = getslidertrackfromlabel(label, fallbacksliderfunc)
     if slider then
         print("[DEBUG] Found slider track at: " .. getFullPath(slider))
+        print("[DEBUG] Track POS: " .. tostring(slider.AbsolutePosition) .. " SIZE: " .. tostring(slider.AbsoluteSize))
     else
         print("[DEBUG] Slider track NOT found for: " .. tostring(prefix))
     end
