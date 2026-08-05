@@ -1819,60 +1819,153 @@ local function dragslideronce(guiObject, startX, startY, finishX, finishY)
 end
 
 
--- Auto Block Range uses the exact supplied premium or free path.
--- It holds the real slider once and moves by label feedback until the exact value is shown.
+-- Auto Block Range searches for a blue row Frame with direct TextLabel and Frame siblings.
+-- row.TextLabel is the value label and row.Frame is the real bar. It never switches tabs.
 local function setautoblockrange(rootfunc, labelfunc, wanted)
     if type(wanted) ~= "number" then return false end
     wanted = math.clamp(math.floor(wanted + 0.5), 0, 20)
 
-    local function isHorizontal(object)
+    local DEFAULT_LABEL_TEXT = "auto block range: 15"
+    local LABEL_PREFIX = "auto block range:"
+
+    local function isvalidtrack(object)
         if not object or not object:IsA("GuiObject") then return false end
-        if object:IsA("TextLabel") or object:IsA("TextBox") or object:IsA("ScrollingFrame") then
+        if object:IsA("GuiButton") or object:IsA("TextLabel")
+            or object:IsA("TextButton") or object:IsA("TextBox")
+            or object:IsA("ScrollingFrame") then
             return false
         end
 
         local width = object.AbsoluteSize.X
         local height = object.AbsoluteSize.Y
-        return width >= 45 and height >= 2 and height <= 40 and width >= height * 3
+
+        return width >= 35
+            and height >= 2
+            and height <= 40
+            and width >= height * 2.5
     end
 
-    local function containsReadableText(object)
-        if object:IsA("TextButton") and normalizetext(object.Text) ~= "" then
-            return true
+    local function getdirectnamedframe(parent)
+        if not parent then return nil end
+
+        local exact = parent:FindFirstChild("Frame")
+        if exact and exact:IsA("Frame") then
+            return exact
         end
 
-        for _, child in ipairs(object:GetDescendants()) do
-            if (child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox"))
-                and normalizetext(child.Text) ~= "" then
-                return true
+        return nil
+    end
+
+    local function resolverowfromlabel(label)
+        if not label or not label:IsA("TextLabel") then
+            return nil, nil
+        end
+
+        local row = label.Parent
+        if not row or not row:IsA("Frame") then
+            return nil, nil
+        end
+
+        -- Exact Explorer layout:
+        -- row.TextLabel = "Auto Block Range: 15"
+        -- row.Frame     = the slider bar
+        -- Both are direct children of the same blue row Frame.
+        local directLabel = row:FindFirstChild("TextLabel")
+        local track = row:FindFirstChild("Frame")
+
+        if directLabel ~= label then
+            return nil, nil
+        end
+
+        if not track or not track:IsA("Frame") or track.Parent ~= row then
+            return nil, nil
+        end
+
+        if not isvalidtrack(track) then
+            return nil, nil
+        end
+
+        return row, track
+    end
+
+    local function findexactlabel()
+        local searchRoot = guis
+        pcall(function()
+            searchRoot = guis.ScreenGui.Frame.Frame
+        end)
+
+        local exactVisible = nil
+        local exactHidden = nil
+        local prefixVisible = nil
+        local prefixHidden = nil
+
+        for _, row in ipairs(searchRoot:GetDescendants()) do
+            if row:IsA("Frame") then
+                local label = row:FindFirstChild("TextLabel")
+                local track = row:FindFirstChild("Frame")
+
+                if label and label:IsA("TextLabel")
+                    and label.Parent == row
+                    and track and track:IsA("Frame")
+                    and track.Parent == row
+                    and isvalidtrack(track) then
+
+                    local textvalue = normalizetext(label.Text)
+                    local visible = isguivisible(label) and isguivisible(track)
+
+                    if textvalue == DEFAULT_LABEL_TEXT then
+                        if visible and not exactVisible then
+                            exactVisible = {label, row, track}
+                        elseif not exactHidden then
+                            exactHidden = {label, row, track}
+                        end
+                    elseif string.sub(textvalue, 1, #LABEL_PREFIX) == LABEL_PREFIX then
+                        if visible and not prefixVisible then
+                            prefixVisible = {label, row, track}
+                        elseif not prefixHidden then
+                            prefixHidden = {label, row, track}
+                        end
+                    end
+                end
             end
         end
 
-        return false
+        local result = exactVisible or prefixVisible or exactHidden or prefixHidden
+        if not result then
+            return nil, nil, nil
+        end
+
+        return result[1], result[2], result[3]
     end
 
-    local function bestDirectHorizontal(parent)
-        if not parent then return nil end
+    local function findexactautotabbutton()
+        local sidebar = nil
+        pcall(function()
+            sidebar = guis.ScreenGui.Frame.ScrollingFrame
+        end)
+
+        if not sidebar then return nil end
 
         local best = nil
-        local bestScore = -math.huge
+        local bestArea = math.huge
 
-        for _, child in ipairs(parent:GetChildren()) do
-            if isHorizontal(child) and not containsReadableText(child) then
-                local score = child.AbsoluteSize.X
+        for _, object in ipairs(sidebar:GetDescendants()) do
+            if (object:IsA("TextLabel") or object:IsA("TextButton"))
+                and normalizetext(object.Text) == "auto" then
 
-                if child:IsA("GuiButton") then score = score + 300 end
-                if child.Active then score = score + 80 end
+                local button = nil
+                if object:IsA("GuiButton") then
+                    button = object
+                else
+                    button = nearestguibutton(object)
+                end
 
-                local lowerName = string.lower(tostring(child.Name))
-                if string.find(lowerName, "slider", 1, true) then score = score + 300 end
-                if string.find(lowerName, "track", 1, true) then score = score + 260 end
-                if string.find(lowerName, "bar", 1, true) then score = score + 100 end
-                if string.find(lowerName, "fill", 1, true) then score = score - 180 end
-
-                if score > bestScore then
-                    best = child
-                    bestScore = score
+                if button and button:IsA("GuiButton") and button:IsDescendantOf(sidebar) then
+                    local area = math.max(1, button.AbsoluteSize.X * button.AbsoluteSize.Y)
+                    if area < bestArea then
+                        best = button
+                        bestArea = area
+                    end
                 end
             end
         end
@@ -1880,72 +1973,49 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
         return best
     end
 
-    local function locateFromText()
-        local label = findsliderlabel("Auto Block Range", nil)
-        if not label then return nil, nil, nil end
+    local label, row, track = findexactlabel()
 
-        -- The slider belongs to the same frame as its Auto Block Range label.
-        -- Start at the label's direct parent and only move upward when that frame
-        -- has no horizontal slider child at all.
-        local row = label.Parent
-        local base = nil
-        local climbed = 0
+    -- Auto Block Range never changes tabs. The label and bar are searched
+    -- directly inside PlayerGui, including hidden descendants.
 
-        while row and row ~= game and climbed < 4 do
-            base = bestDirectHorizontal(row)
-            if base then break end
-            row = row.Parent
-            climbed = climbed + 1
-        end
-
-        if not base then
-            return label, row, nil
-        end
-
-        local track = base
-
-        -- Premium has one extra Frame inside the row's slider container.
-        -- Free mode uses the first horizontal frame itself.
-        if premium_mode then
-            local nested = bestDirectHorizontal(base)
-            if nested then
-                track = nested
-            end
-        end
-
-        return label, row, track
-    end
-
-    local label, row, track = locateFromText()
-
-    -- If the loaded Auto page is hidden, open only the tab whose text is exactly
-    -- Auto. There is no numbered-tab click here.
-    if label and not isguivisible(label) then
-        opentab("Auto", nil)
-        task.wait(touchmode and 0.055 or 0.03)
-        label, row, track = locateFromText()
-    end
-
-    -- Exact old paths are fallback only and are accepted only when they belong to
-    -- the same frame that contains the located label.
-    if not track then
-        local fallbackRoot = getsafeobject(rootfunc)
+    -- Exact old paths are fallback only. The fallback label must still be the
+    -- Auto Block Range label and the fallback track must stay inside its row.
+    if not label or not row or not track then
         local fallbackLabel = nil
+        local fallbackTrack = getsafeobject(rootfunc)
 
         pcall(function()
-            if labelfunc then fallbackLabel = labelfunc() end
+            if labelfunc then
+                fallbackLabel = labelfunc()
+            end
         end)
 
-        label = label or fallbackLabel
-        row = label and label.Parent or nil
+        if fallbackLabel and fallbackLabel:IsA("TextLabel") then
+            local fallbackText = normalizetext(fallbackLabel.Text)
+            local validText = fallbackText == DEFAULT_LABEL_TEXT
+                or string.sub(fallbackText, 1, #LABEL_PREFIX) == LABEL_PREFIX
 
-        if fallbackRoot and row
-            and (fallbackRoot:IsDescendantOf(row) or fallbackRoot == row) then
-            track = fallbackRoot
+            local fallbackRow = fallbackLabel.Parent
+            if validText and fallbackRow and fallbackRow:IsA("Frame")
+                and fallbackRow:FindFirstChild("TextLabel") == fallbackLabel
+                and fallbackTrack and fallbackTrack:IsA("Frame")
+                and fallbackTrack.Parent == fallbackRow
+                and fallbackRow:FindFirstChild("Frame") == fallbackTrack
+                and isvalidtrack(fallbackTrack) then
+
+                label = fallbackLabel
+                row = fallbackRow
+                track = fallbackTrack
+            end
         end
     end
 
-    if not label or not row or not track or not isHorizontal(track) then
+    if not label or not row or not track then
+        return false
+    end
+
+    -- Never send input to a hidden duplicate row.
+    if not isguivisible(label) or not isguivisible(track) then
         return false
     end
 
@@ -1957,7 +2027,7 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
     local scrolling, oldCanvasPosition = bringintoviewtemporarily(track)
     task.wait(touchmode and 0.045 or 0.02)
 
-    local padding = math.max(2, math.min(8, track.AbsoluteSize.Y / 2))
+    local padding = math.max(2, math.min(6, track.AbsoluteSize.Y / 2))
     local left = track.AbsolutePosition.X + padding
     local right = track.AbsolutePosition.X + track.AbsoluteSize.X - padding
     local y = track.AbsolutePosition.Y + track.AbsoluteSize.Y / 2
@@ -1967,105 +2037,110 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
         return false
     end
 
-    local function releaseInput(x, yPos)
+    local function releaseinput(x, yPosition)
+        local releaseX = math.floor(x + 0.5)
+        local releaseY = math.floor(yPosition + 0.5)
+
         pcall(function()
-            vman:SendTouchEvent(0, 2, math.floor(x + 0.5), math.floor(yPos + 0.5))
+            local touchX, touchY = gettouchcoords(track, releaseX, releaseY)
+            vman:SendTouchEvent(0, 2, touchX, touchY)
         end)
+
         pcall(function()
-            vman:SendMouseButtonEvent(
-                math.floor(x + 0.5),
-                math.floor(yPos + 0.5),
-                0,
-                false,
-                game,
-                1
-            )
+            vman:SendMouseButtonEvent(releaseX, releaseY, 0, false, game, 1)
         end)
+
         if type(mouse1release) == "function" then
             pcall(mouse1release)
         end
     end
 
-    local function dragWithoutInset(startX, finishX)
+    local function dragonce(startX, finishX)
         startX = math.clamp(startX, left, right)
         finishX = math.clamp(finishX, left, right)
 
-        local sx = math.floor(startX + 0.5)
-        local fx = math.floor(finishX + 0.5)
-        local py = math.floor(y + 0.5)
+        local startRounded = math.floor(startX + 0.5)
+        local finishRounded = math.floor(finishX + 0.5)
+        local yRounded = math.floor(y + 0.5)
         local held = false
 
         local ok = pcall(function()
             if touchmode then
-                -- Roblox AbsolutePosition is already the slider's screen position.
-                -- Do not add GuiInset because that hits the row above on mobile.
-                vman:SendTouchEvent(0, 0, sx, py)
+                local touchStartX, touchStartY = gettouchcoords(track, startRounded, yRounded)
+                local touchFinishX, touchFinishY = gettouchcoords(track, finishRounded, yRounded)
+
+                vman:SendTouchEvent(0, 0, touchStartX, touchStartY)
                 held = true
                 task.wait(0.025)
-                vman:SendTouchEvent(0, 1, fx, py)
-                task.wait(0.025)
-                vman:SendTouchEvent(0, 2, fx, py)
+                vman:SendTouchEvent(0, 1, touchFinishX, touchFinishY)
+                task.wait(0.03)
+                vman:SendTouchEvent(0, 2, touchFinishX, touchFinishY)
                 held = false
             elseif type(mousemoveabs) == "function"
                 and type(mouse1press) == "function"
                 and type(mouse1release) == "function" then
-                mousemoveabs(sx, py)
+
+                mousemoveabs(startRounded, yRounded)
                 task.wait(0.01)
                 mouse1press()
                 held = true
-                task.wait(0.018)
-                mousemoveabs(fx, py)
-                task.wait(0.025)
+                task.wait(0.02)
+                mousemoveabs(finishRounded, yRounded)
+                task.wait(0.03)
                 mouse1release()
                 held = false
             else
-                vman:SendMouseMoveEvent(sx, py, game)
-                vman:SendMouseButtonEvent(sx, py, 0, true, game, 1)
+                vman:SendMouseMoveEvent(startRounded, yRounded, game)
+                vman:SendMouseButtonEvent(startRounded, yRounded, 0, true, game, 1)
                 held = true
-                task.wait(0.018)
-                vman:SendMouseMoveEvent(fx, py, game)
-                task.wait(0.025)
-                vman:SendMouseButtonEvent(fx, py, 0, false, game, 1)
+                task.wait(0.02)
+                vman:SendMouseMoveEvent(finishRounded, yRounded, game)
+                task.wait(0.03)
+                vman:SendMouseButtonEvent(finishRounded, yRounded, 0, false, game, 1)
                 held = false
             end
         end)
 
         if held then
-            releaseInput(fx, py)
+            releaseinput(finishRounded, yRounded)
         end
 
-        if not ok then return nil end
-        return waitforvaluechange(label, currentValue, touchmode and 0.14 or 0.09)
+        if not ok then
+            return nil
+        end
+
+        return waitforvaluechange(label, currentValue, touchmode and 0.16 or 0.1)
     end
 
+    -- Auto Block Range is 0 to 20. The exact default label is 15.
     local knob = findsliderknob(track, row)
     local startX = knob
         and (knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2)
-        or (left + (math.clamp(currentValue or 0, 0, 20) / 20) * (right - left))
+        or (left + (math.clamp(currentValue or 15, 0, 20) / 20) * (right - left))
 
     local targetX = left + (wanted / 20) * (right - left)
-    local value = dragWithoutInset(startX, targetX)
-    currentValue = value or readslidernumber(label)
+    local newValue = dragonce(startX, targetX)
+    currentValue = newValue or readslidernumber(label)
 
-    -- At most two small feedback corrections. Never scan other tabs and never
-    -- search outside this exact row frame.
-    for _ = 1, 2 do
-        if currentValue == wanted or currentValue == nil then break end
-
-        local correction = ((wanted - currentValue) / 20) * (right - left)
+    -- One feedback correction only. This prevents touch spam and avoids
+    -- repeatedly toggling anything if the UI rejects the drag.
+    if currentValue and currentValue ~= wanted then
         local liveKnob = findsliderknob(track, row)
         local liveX = liveKnob
             and (liveKnob.AbsolutePosition.X + liveKnob.AbsoluteSize.X / 2)
             or targetX
 
-        targetX = math.clamp(liveX + correction, left, right)
-        value = dragWithoutInset(liveX, targetX)
+        local correction = ((wanted - currentValue) / 20) * (right - left)
+        local correctedX = math.clamp(liveX + correction, left, right)
 
-        if value == currentValue then break end
-        currentValue = value or readslidernumber(label)
+        if math.abs(correctedX - liveX) >= 1 then
+            targetX = correctedX
+            newValue = dragonce(liveX, correctedX)
+            currentValue = newValue or readslidernumber(label)
+        end
     end
 
-    releaseInput(targetX, y)
+    releaseinput(targetX, y)
     restorescroll(scrolling, oldCanvasPosition)
 
     return readslidernumber(label) == wanted
@@ -2230,7 +2305,7 @@ local dlyval = getcfgnum("Click Delay", 16)
 
 if premium_mode then
     setautoblockrange(
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
+        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
         blkrange
     )
