@@ -1,16 +1,23 @@
-local env = _G
+-- Jujutsu Shenanigans custom-config UI loader.
+--
+-- This script deliberately drives the existing ScreenGui instead of changing the
+-- game's internal values.  UI libraries differ, so every operation is verified
+-- from the visible control before it is counted as applied.
+
+local environment = _G
 pcall(function()
     if type(getgenv) == "function" then
-        local value = getgenv()
-        if type(value) == "table" then
-            env = value
+        local executorEnvironment = getgenv()
+        if type(executorEnvironment) == "table" then
+            environment = executorEnvironment
         end
     elseif type(getgenv) == "table" then
-        env = getgenv
+        environment = getgenv
     end
 end)
 
-if game.PlaceId ~= 9391468976 and game.GameId ~= 9391468976 then
+local SUPPORTED_PLACE_ID = 9391468976
+if game.PlaceId ~= SUPPORTED_PLACE_ID then
     return
 end
 
@@ -19,90 +26,126 @@ local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 if not player then
     return
 end
 
-local playerGui = player:WaitForChild("PlayerGui", 10)
+local playerGui = player:WaitForChild("PlayerGui", 15)
 if not playerGui then
     return
 end
 
-local enabled = env.enablecustomconfig
-if enabled == nil then
-    enabled = true
+local function toBoolean(value, defaultValue)
+    if value == nil then
+        return defaultValue
+    end
+    if value == true or value == 1 then
+        return true
+    end
+    local text = string.lower(tostring(value))
+    return text == "true" or text == "yes" or text == "on" or text == "1"
 end
-if enabled ~= true then
+
+if not toBoolean(environment.enablecustomconfig, true) then
     return
 end
 
-local rawConfig = env.Config or env.config or env.customconfig
-local config = nil
+local function decodeConfig(value)
+    if type(value) == "table" then
+        return value.CONFIG or value.Config or value
+    end
 
-if type(rawConfig) == "string" and rawConfig ~= "" then
-    pcall(function()
-        local decoded = HttpService:JSONDecode(rawConfig)
-        if type(decoded) == "table" then
-            config = decoded.CONFIG or decoded
+    if type(value) == "string" and value ~= "" then
+        local ok, decoded = pcall(function()
+            return HttpService:JSONDecode(value)
+        end)
+        if ok and type(decoded) == "table" then
+            return decoded.CONFIG or decoded.Config or decoded
         end
-    end)
-elseif type(rawConfig) == "table" then
-    config = rawConfig.CONFIG or rawConfig
+    end
+
+    return nil
 end
+
+local config = decodeConfig(
+    environment.Config
+        or environment.config
+        or environment.customconfig
+        or environment.CustomConfig
+)
 
 if type(config) ~= "table" then
+    warn("[ConfigLoader] Config is missing or invalid")
     return
 end
 
-local startupWait = env.startup_wait
+local startupWait = environment.startup_wait
 if startupWait == true then
     startupWait = 4
-elseif type(startupWait) ~= "number" then
+else
     startupWait = tonumber(startupWait) or 0
 end
 startupWait = math.clamp(startupWait, 0, 30)
-
-local showNotification = env.show_notification
-if showNotification == nil then
-    showNotification = true
-end
-showNotification = showNotification == true
-    or showNotification == 1
-    or string.lower(tostring(showNotification)) == "true"
-
 if startupWait > 0 then
     task.wait(startupWait)
 end
 
+local showNotification = toBoolean(environment.show_notification, true)
 local touchMode = UserInputService.TouchEnabled
+local STEP_WAIT = touchMode and 0.075 or 0.045
+local INPUT_WAIT = touchMode and 0.035 or 0.02
 
-local function normalize(value)
-    local text = string.lower(tostring(value or ""))
-    text = string.gsub(text, "[%c]", " ")
-    text = string.gsub(text, "%s+", " ")
+local function trim(text)
+    text = tostring(text or "")
     text = string.gsub(text, "^%s+", "")
     text = string.gsub(text, "%s+$", "")
     return text
+end
+
+local function normalize(value)
+    local text = string.lower(tostring(value or ""))
+    text = string.gsub(text, "[_%-]+", " ")
+    text = string.gsub(text, "[^%w%s]", " ")
+    text = string.gsub(text, "%s+", " ")
+    return trim(text)
 end
 
 local function escapePattern(value)
     return string.gsub(value, "([^%w])", "%%%1")
 end
 
+local function isTextObject(object)
+    return object
+        and (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox"))
+end
+
+local function objectText(object)
+    if isTextObject(object) then
+        return tostring(object.Text or "")
+    end
+    return ""
+end
+
 local function isVisible(object)
-    if not object or not object:IsA("GuiObject") or not object.Visible then
+    if not object or not object.Parent then
         return false
     end
 
-    if object.AbsoluteSize.X <= 0 or object.AbsoluteSize.Y <= 0 then
-        return false
+    if object:IsA("GuiObject") then
+        if not object.Visible or object.AbsoluteSize.X <= 0 or object.AbsoluteSize.Y <= 0 then
+            return false
+        end
     end
 
-    local current = object.Parent
+    local current = object
     while current and current ~= game do
         if current:IsA("GuiObject") and not current.Visible then
+            return false
+        end
+        if current:IsA("LayerCollector") and not current.Enabled then
             return false
         end
         current = current.Parent
@@ -111,545 +154,210 @@ local function isVisible(object)
     return true
 end
 
-local function objectText(object)
-    if not object then
-        return ""
+local function descendants(root)
+    if root and root.Parent then
+        return root:GetDescendants()
     end
-
-    if object:IsA("TextButton") or object:IsA("TextLabel") or object:IsA("TextBox") then
-        return tostring(object.Text or "")
-    end
-
-    return ""
+    return {}
 end
 
-local function buttonHasExactText(button, wanted)
-    if not button or not button:IsA("GuiButton") then
+local function waitFrames(count)
+    for _ = 1, count or 1 do
+        RunService.RenderStepped:Wait()
+    end
+end
+
+local STANDARD_TABS = {
+    "Main",
+    "Combat",
+    "Auto",
+    "Teleports",
+    "Target",
+    "Extra",
+    "Configs",
+    "AI Assistant",
+}
+local TAB_LOOKUP = {}
+for _, tabName in ipairs(STANDARD_TABS) do
+    TAB_LOOKUP[normalize(tabName)] = tabName
+end
+
+local function isArray(value)
+    if type(value) ~= "table" then
         return false
     end
-
-    local target = normalize(wanted)
-
-    if button:IsA("TextButton") and normalize(button.Text) == target then
+    if #value > 0 then
         return true
     end
-
-    for _, object in ipairs(button:GetDescendants()) do
-        if (object:IsA("TextLabel") or object:IsA("TextButton"))
-            and normalize(object.Text) == target then
-            return true
-        end
-    end
-
-    return false
+    return next(value) == nil
 end
 
-local function buttonHasSettingPrefix(button, wanted)
-    if not button or not button:IsA("GuiButton") then
-        return false
+local entries = {}
+local function addEntry(name, value, tabHint)
+    table.insert(entries, {
+        name = tostring(name),
+        value = value,
+        tabHint = tabHint,
+    })
+end
+
+for key, value in pairs(config) do
+    local knownTab = TAB_LOOKUP[normalize(key)]
+    if knownTab and type(value) == "table" and not isArray(value) then
+        for nestedName, nestedValue in pairs(value) do
+            addEntry(nestedName, nestedValue, knownTab)
+        end
+    else
+        addEntry(key, value, nil)
     end
+end
 
-    local target = normalize(wanted)
-    local prefix = "^" .. escapePattern(target) .. "%s*:"
+table.sort(entries, function(a, b)
+    local aTab = a.tabHint or ""
+    local bTab = b.tabHint or ""
+    if aTab == bTab then
+        return normalize(a.name) < normalize(b.name)
+    end
+    return aTab < bTab
+end)
 
-    if button:IsA("TextButton") and string.match(normalize(button.Text), prefix) then
+local function textMatchesName(text, name)
+    local normalizedText = normalize(text)
+    local normalizedName = normalize(name)
+    if normalizedText == normalizedName then
         return true
     end
-
-    for _, object in ipairs(button:GetDescendants()) do
-        if (object:IsA("TextLabel") or object:IsA("TextButton"))
-            and string.match(normalize(object.Text), prefix) then
-            return true
-        end
-    end
-
-    return false
+    return string.match(normalizedText, "^" .. escapePattern(normalizedName) .. "%s+") ~= nil
 end
 
-local function nearestGuiButton(object, maxDepth)
-    local current = object
-    local depth = 0
-
-    while current and current ~= game and depth <= (maxDepth or 3) do
-        if current:IsA("GuiButton") then
-            return current
-        end
-        current = current.Parent
-        depth = depth + 1
+local function countConfigMatches(root)
+    local wanted = {}
+    for _, entry in ipairs(entries) do
+        wanted[normalize(entry.name)] = true
     end
 
-    return nil
-end
-
-local function findExactTextObjects(wanted, visibleOnly)
-    local target = normalize(wanted)
-    local results = {}
-
-    for _, object in ipairs(playerGui:GetDescendants()) do
-        if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-            if normalize(object.Text) == target and (not visibleOnly or isVisible(object)) then
-                table.insert(results, object)
-            end
-        end
-    end
-
-    table.sort(results, function(a, b)
-        local aScore = 0
-        local bScore = 0
-
-        if isVisible(a) then aScore = aScore + 100 end
-        if isVisible(b) then bScore = bScore + 100 end
-        if a:IsA("TextButton") then aScore = aScore + 20 end
-        if b:IsA("TextButton") then bScore = bScore + 20 end
-
-        return aScore > bScore
-    end)
-
-    return results
-end
-
-local function findNumericLabel(name, visibleOnly)
-    local target = normalize(name)
-    local pattern = "^" .. escapePattern(target) .. "%s*:%s*[-+]?%d+%.?%d*"
-    local best = nil
-    local bestScore = -math.huge
-
-    for _, object in ipairs(playerGui:GetDescendants()) do
-        if object:IsA("TextLabel") and string.match(normalize(object.Text), pattern) then
-            if not visibleOnly or isVisible(object) then
-                local row = object.Parent
-                if row and row:IsA("Frame") then
-                    local score = 0
-                    if isVisible(object) then score = score + 1000 end
-                    if row.AbsoluteSize.X >= 80 then score = score + 100 end
-                    if row.AbsoluteSize.Y >= 20 and row.AbsoluteSize.Y <= 160 then score = score + 100 end
-
-                    if score > bestScore then
-                        best = object
-                        bestScore = score
-                    end
+    local matched = {}
+    for _, object in ipairs(descendants(root)) do
+        if isTextObject(object) then
+            local text = normalize(objectText(object))
+            for name in pairs(wanted) do
+                if text == name or string.match(text, "^" .. escapePattern(name) .. "%s+") then
+                    matched[name] = true
                 end
             end
         end
     end
 
-    return best
+    local count = 0
+    for _ in pairs(matched) do
+        count = count + 1
+    end
+    return count
 end
 
-local function fireOneConnection(signal)
-    if type(getconnections) ~= "function" or not signal then
-        return false
+local function resolveNamedRoot(name)
+    if type(name) ~= "string" or name == "" then
+        return nil
     end
-
-    local connections = nil
-    pcall(function()
-        connections = getconnections(signal)
-    end)
-
-    if type(connections) ~= "table" then
-        return false
-    end
-
-    for _, connection in ipairs(connections) do
-        if pcall(function()
-            connection:Fire()
-        end) then
-            return true
-        end
-    end
-
-    return false
+    return playerGui:FindFirstChild(name, true)
 end
 
-local function mouseClick(x, y)
-    x = math.floor(x + 0.5)
-    y = math.floor(y + 0.5)
-
-    return pcall(function()
-        VirtualInputManager:SendMouseMoveEvent(x, y, game)
-        task.wait(0.01)
-        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-        task.wait(0.015)
-        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-    end)
-end
-
-local function pressGuiButton(button)
-    if not button or not button.Parent or not button:IsA("GuiButton") then
-        return false
-    end
-
-    if fireOneConnection(button.Activated) then
-        return true
-    end
-
-    if fireOneConnection(button.MouseButton1Click) then
-        return true
-    end
-
-    if type(firesignal) == "function" then
-        local ok = pcall(function()
-            firesignal(button.Activated)
-        end)
-        if ok then
-            return true
-        end
-    end
-
-    if not isVisible(button) then
-        return false
-    end
-
-    local x = button.AbsolutePosition.X + button.AbsoluteSize.X / 2
-    local y = button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2
-    return mouseClick(x, y)
-end
-
-local function findExactTabButton(tabName)
-    local best = nil
-    local bestScore = -math.huge
-
-    for _, object in ipairs(playerGui:GetDescendants()) do
-        if object:IsA("GuiButton") and buttonHasExactText(object, tabName) then
-            local score = 0
-            if isVisible(object) then score = score + 1000 end
-
-            local parent = object.Parent
-            local depth = 0
-            while parent and parent ~= game and depth < 6 do
-                if parent:IsA("ScrollingFrame") then
-                    score = score + 300
-                    break
-                end
-                parent = parent.Parent
-                depth = depth + 1
-            end
-
-            score = score - object.AbsolutePosition.X
-
+local uiRoot = resolveNamedRoot(environment.config_screen_gui or environment.ScreenGui)
+if not uiRoot then
+    local bestScore = 0
+    for _, child in ipairs(playerGui:GetChildren()) do
+        if child:IsA("LayerCollector") then
+            local score = countConfigMatches(child)
             if score > bestScore then
-                best = object
+                uiRoot = child
                 bestScore = score
             end
         end
     end
-
-    return best
 end
+uiRoot = uiRoot or playerGui
 
-local currentTab = nil
-
-local function openTab(tabName)
-    if currentTab == tabName then
-        return true
-    end
-
-    local button = findExactTabButton(tabName)
-    if not button then
-        return false
-    end
-
-    if not pressGuiButton(button) then
-        return false
-    end
-
-    currentTab = tabName
-    task.wait(touchMode and 0.08 or 0.045)
-    return true
-end
-
-local function tabForSetting(name)
-    local text = normalize(name)
-
-    if string.find(text, "emote", 1, true)
-        or string.find(text, "soundboard", 1, true)
-        or string.find(text, "extra", 1, true) then
-        return "Extra"
-    end
-
-    if string.find(text, "lock on", 1, true)
-        or string.find(text, "target", 1, true) then
-        return "Target"
-    end
-
-    if string.find(text, "m1", 1, true)
-        or string.find(text, "dash assist", 1, true) then
-        return "Combat"
-    end
-
-    if string.find(text, "auto", 1, true)
-        or string.find(text, "anti", 1, true)
-        or string.find(text, "range", 1, true)
-        or string.find(text, "delay", 1, true)
-        or string.find(text, "domain", 1, true)
-        or string.find(text, "blackflash", 1, true)
-        or string.find(text, "black flash", 1, true)
-        or string.find(text, "swap", 1, true)
-        or string.find(text, "chain", 1, true) then
-        return "Auto"
-    end
-
-    return "Main"
-end
-
-local function directSiblingToggle(label)
-    local row = label and label.Parent
-    if not row or not row:IsA("GuiObject") then
-        return nil
-    end
-
-    local candidates = {}
-
-    for _, child in ipairs(row:GetChildren()) do
-        if child:IsA("GuiButton") and child ~= label and isVisible(child) then
-            table.insert(candidates, child)
-        elseif child:IsA("Frame") then
-            for _, nested in ipairs(child:GetChildren()) do
-                if nested:IsA("GuiButton") and isVisible(nested) then
-                    table.insert(candidates, nested)
-                end
-            end
-        end
-    end
-
-    if #candidates ~= 1 then
-        return nil
-    end
-
-    local button = candidates[1]
-    local labelCenterY = label.AbsolutePosition.Y + label.AbsoluteSize.Y / 2
-    local buttonCenterY = button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2
-
-    if math.abs(labelCenterY - buttonCenterY) > math.max(18, row.AbsoluteSize.Y * 0.45) then
-        return nil
-    end
-
-    return button
-end
-
-local function findToggleButton(name)
-    local matches = findExactTextObjects(name, true)
-
-    for _, textObject in ipairs(matches) do
-        if textObject:IsA("GuiButton") and buttonHasExactText(textObject, name) then
-            return textObject
-        end
-
-        local ancestor = nearestGuiButton(textObject, 3)
-        if ancestor and buttonHasExactText(ancestor, name) then
-            return ancestor
-        end
-
-        local sibling = directSiblingToggle(textObject)
-        if sibling then
-            return sibling
-        end
-    end
-
-    return nil
-end
-
-local function colorLooksEnabled(color)
-    return color.G > 0.48
-        and color.G > color.R * 1.1
-        and color.G >= color.B * 0.72
-end
-
-local function readToggleState(button)
-    if not button then
-        return nil
-    end
-
-    local objects = {button, button.Parent}
-    local names = {"Enabled", "On", "Toggled", "State", "Value"}
-
-    for _, object in ipairs(objects) do
-        if object then
-            for _, name in ipairs(names) do
-                local value = nil
-                pcall(function()
-                    value = object:GetAttribute(name)
-                end)
-
-                if type(value) == "boolean" then
-                    return value
-                end
-
-                local child = object:FindFirstChild(name, true)
-                if child and child:IsA("BoolValue") then
-                    return child.Value
-                end
-            end
-        end
-    end
-
-    if colorLooksEnabled(button.BackgroundColor3) then
-        return true
-    end
-
-    for _, object in ipairs(button:GetDescendants()) do
-        if object:IsA("GuiObject") and colorLooksEnabled(object.BackgroundColor3) then
-            return true
-        end
-    end
-
-    return nil
-end
-
-local function enableToggle(name)
-    local button = findToggleButton(name)
-    if not button then
-        return false
-    end
-
-    if readToggleState(button) == true then
-        return true
-    end
-
-    return pressGuiButton(button)
-end
-
-local function readSliderNumber(label)
-    if not label then
-        return nil
-    end
-
-    local value = string.match(tostring(label.Text or ""), ":%s*([-+]?%d+%.?%d*)")
-    return value and tonumber(value) or nil
-end
-
-local function containsVisibleText(frame)
-    for _, object in ipairs(frame:GetDescendants()) do
-        if (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox"))
-            and normalize(object.Text) ~= "" then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function containsGuiButton(frame)
-    if frame:IsA("GuiButton") then
-        return true
-    end
-
-    for _, object in ipairs(frame:GetDescendants()) do
-        if object:IsA("GuiButton") then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function findDirectSliderBar(label)
-    local row = label and label.Parent
-    if not row or not row:IsA("Frame") then
-        return nil, nil
-    end
-
-    local best = nil
-    local bestScore = -math.huge
-    local labelCenterY = label.AbsolutePosition.Y + label.AbsoluteSize.Y / 2
-
-    for _, child in ipairs(row:GetChildren()) do
-        if child:IsA("Frame") and child ~= label then
-            local width = child.AbsoluteSize.X
-            local height = child.AbsoluteSize.Y
-
-            if width >= 30
-                and height >= 2
-                and height <= 50
-                and width >= height * 2.2
-                and not containsGuiButton(child)
-                and not containsVisibleText(child) then
-
-                local centerY = child.AbsolutePosition.Y + height / 2
-                local score = width - math.abs(centerY - labelCenterY) * 3
-
-                if child.Name == "Frame" then
-                    score = score + 300
-                end
-
-                if child.AbsolutePosition.Y >= label.AbsolutePosition.Y then
-                    score = score + 120
-                end
-
-                if score > bestScore then
-                    best = child
-                    bestScore = score
-                end
-            end
-        end
-    end
-
-    return best, row
-end
-
-local sliderRanges = {
-    [normalize("Auto Block Range")] = {0, 30},
-    [normalize("Auto Counter Range")] = {0, 30},
-    [normalize("Click Delay")] = {0, 30}
-}
-
-local function readNumericMetadata(objects, names)
-    for _, object in ipairs(objects) do
-        if object then
-            for _, name in ipairs(names) do
-                local value = nil
-                pcall(function()
-                    value = object:GetAttribute(name)
-                end)
-
-                if type(value) == "number" then
-                    return value
-                end
-
-                local child = object:FindFirstChild(name, true)
-                if child and (child:IsA("NumberValue") or child:IsA("IntValue")) then
-                    return child.Value
-                end
-            end
-        end
-    end
-
-    return nil
-end
-
-local function sliderRange(name, label, bar, row)
-    local objects = {bar, row, label}
-
-    local minimum = readNumericMetadata(objects, {
-        "Min", "Minimum", "MinValue", "MinimumValue", "LowerBound"
+-- The panel can be closed while the config is loaded.  Its controls still
+-- exist, but Roblox reports them as invisible and will not route input to
+-- them.  Open only the selected panel for the duration of this run and put it
+-- back exactly as it was afterward.
+local uiStateToRestore = {}
+local function rememberAndSet(object, property, value)
+    table.insert(uiStateToRestore, {
+        object = object,
+        property = property,
+        value = object[property],
     })
+    object[property] = value
+end
 
-    local maximum = readNumericMetadata(objects, {
-        "Max", "Maximum", "MaxValue", "MaximumValue", "UpperBound"
-    })
+if uiRoot:IsA("LayerCollector") and not uiRoot.Enabled then
+    rememberAndSet(uiRoot, "Enabled", true)
+end
 
-    if type(minimum) == "number" and type(maximum) == "number" and maximum > minimum then
-        return minimum, maximum
+if uiRoot:IsA("LayerCollector") then
+    local guiChildren = {}
+    for _, child in ipairs(uiRoot:GetChildren()) do
+        if child:IsA("GuiObject") then
+            table.insert(guiChildren, child)
+        end
     end
 
-    local fallback = sliderRanges[normalize(name)]
-    if fallback then
-        return fallback[1], fallback[2]
+    for _, child in ipairs(guiChildren) do
+        local ownsControls = countConfigMatches(child) > 0
+        if not ownsControls and #guiChildren == 1 then
+            ownsControls = true
+        end
+        if ownsControls and not child.Visible then
+            rememberAndSet(child, "Visible", true)
+        end
     end
+    waitFrames(2)
+end
 
-    return 0, 30
+local function restoreUiState()
+    for index = #uiStateToRestore, 1, -1 do
+        local state = uiStateToRestore[index]
+        if state.object and state.object.Parent then
+            pcall(function()
+                state.object[state.property] = state.value
+            end)
+        end
+    end
+end
+
+local function allTextObjects(visibleOnly)
+    local results = {}
+    for _, object in ipairs(descendants(uiRoot)) do
+        if isTextObject(object) and (not visibleOnly or isVisible(object)) then
+            table.insert(results, object)
+        end
+    end
+    return results
+end
+
+local function nearestButton(object, maxDepth)
+    local current = object
+    for _ = 0, maxDepth or 5 do
+        if not current or current == game then
+            break
+        end
+        if current:IsA("GuiButton") then
+            return current
+        end
+        current = current.Parent
+    end
+    return nil
 end
 
 local function findScrollingAncestor(object)
     local current = object and object.Parent
-
     while current and current ~= game do
         if current:IsA("ScrollingFrame") then
             return current
         end
         current = current.Parent
     end
-
     return nil
 end
 
@@ -659,50 +367,588 @@ local function bringIntoView(object)
         return nil, nil
     end
 
-    local oldPosition = scrolling.CanvasPosition
+    local original = scrolling.CanvasPosition
     local top = object.AbsolutePosition.Y
     local bottom = top + object.AbsoluteSize.Y
     local windowTop = scrolling.AbsolutePosition.Y
     local windowBottom = windowTop + scrolling.AbsoluteWindowSize.Y
 
-    if top < windowTop + 4 or bottom > windowBottom - 4 then
-        local difference = top - windowTop - 20
-        local maxY = math.max(0, scrolling.AbsoluteCanvasSize.Y - scrolling.AbsoluteWindowSize.Y)
-        local newY = math.clamp(oldPosition.Y + difference, 0, maxY)
-        scrolling.CanvasPosition = Vector2.new(oldPosition.X, newY)
-        task.wait(touchMode and 0.06 or 0.035)
+    if top < windowTop + 8 or bottom > windowBottom - 8 then
+        local desired = original.Y + top - windowTop - 24
+        local maximum = math.max(0, scrolling.AbsoluteCanvasSize.Y - scrolling.AbsoluteWindowSize.Y)
+        scrolling.CanvasPosition = Vector2.new(original.X, math.clamp(desired, 0, maximum))
+        waitFrames(2)
     end
 
-    return scrolling, oldPosition
+    return scrolling, original
 end
 
-local function restoreScroll(scrolling, oldPosition)
-    if scrolling and oldPosition then
+local function restoreScroll(scrolling, original)
+    if scrolling and original then
         pcall(function()
-            scrolling.CanvasPosition = oldPosition
+            scrolling.CanvasPosition = original
         end)
     end
+end
+
+local function fireConnections(signal)
+    if type(getconnections) ~= "function" or not signal then
+        return 0
+    end
+
+    local ok, connections = pcall(getconnections, signal)
+    if not ok or type(connections) ~= "table" then
+        return 0
+    end
+
+    local fired = 0
+    for _, connection in ipairs(connections) do
+        if pcall(function()
+            connection:Fire()
+        end) then
+            fired = fired + 1
+        end
+    end
+    return fired
+end
+
+local function mouseClick(x, y)
+    x = math.floor(x + 0.5)
+    y = math.floor(y + 0.5)
+    return pcall(function()
+        VirtualInputManager:SendMouseMoveEvent(x, y, game)
+        task.wait(INPUT_WAIT)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+        task.wait(INPUT_WAIT)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+    end)
+end
+
+local function clickGui(object)
+    if not object or not object.Parent or not object:IsA("GuiObject") then
+        return false
+    end
+
+    local scrolling, original = bringIntoView(object)
+    local clicked = false
+
+    if isVisible(object) then
+        local x = object.AbsolutePosition.X + object.AbsoluteSize.X / 2
+        local y = object.AbsolutePosition.Y + object.AbsoluteSize.Y / 2
+        clicked = mouseClick(x, y)
+    end
+
+    if not clicked and object:IsA("GuiButton") then
+        clicked = fireConnections(object.Activated) > 0
+        if not clicked and object:IsA("TextButton") then
+            clicked = fireConnections(object.MouseButton1Click) > 0
+        end
+        if not clicked and type(firesignal) == "function" then
+            clicked = pcall(firesignal, object.Activated)
+        end
+    end
+
+    task.wait(STEP_WAIT)
+    restoreScroll(scrolling, original)
+    return clicked
+end
+
+local function collectObjectTexts(object)
+    local values = {}
+    if isTextObject(object) then
+        table.insert(values, objectText(object))
+    end
+    for _, child in ipairs(descendants(object)) do
+        if isTextObject(child) then
+            table.insert(values, objectText(child))
+        end
+    end
+    return table.concat(values, " ")
+end
+
+local function findTabButton(tabName)
+    local target = normalize(tabName)
+    local best, bestScore = nil, -math.huge
+
+    for _, object in ipairs(descendants(uiRoot)) do
+        if object:IsA("GuiButton") and normalize(collectObjectTexts(object)) == target then
+            local score = isVisible(object) and 1000 or 0
+            local scrolling = findScrollingAncestor(object)
+            if scrolling then
+                score = score + 100
+            end
+            if object.AbsoluteSize.Y >= 18 and object.AbsoluteSize.Y <= 80 then
+                score = score + 50
+            end
+            if score > bestScore then
+                best, bestScore = object, score
+            end
+        end
+    end
+
+    return best
+end
+
+local currentTab = nil
+local function openTab(tabName)
+    if currentTab == tabName then
+        return true
+    end
+
+    local button = findTabButton(tabName)
+    if not button or not isVisible(button) then
+        return false
+    end
+
+    if not clickGui(button) then
+        return false
+    end
+
+    currentTab = tabName
+    waitFrames(2)
+    return true
+end
+
+local function guessedTab(name)
+    local text = normalize(name)
+    local rules = {
+        {"Extra", {"emote", "soundboard", "extra"}},
+        {"Target", {"lock on", "target"}},
+        {"Combat", {"m1", "dash assist", "combat"}},
+        {"Auto", {"auto", "anti", "range", "delay", "domain", "blackflash", "black flash", "swap", "chain"}},
+    }
+
+    for _, rule in ipairs(rules) do
+        for _, needle in ipairs(rule[2]) do
+            if string.find(text, needle, 1, true) then
+                return rule[1]
+            end
+        end
+    end
+    return "Main"
+end
+
+local function tabSearchOrder(tabHint, name)
+    local order, seen = {}, {}
+    local function add(tabName)
+        if tabName and not seen[tabName] then
+            seen[tabName] = true
+            table.insert(order, tabName)
+        end
+    end
+
+    add(tabHint)
+    add(guessedTab(name))
+    add(currentTab)
+    for _, tabName in ipairs(STANDARD_TABS) do
+        add(tabName)
+    end
+    return order
+end
+
+local function findSettingText(name, numericOnly)
+    local best, bestScore = nil, -math.huge
+    local target = normalize(name)
+    local prefix = "^" .. escapePattern(target) .. "%s+"
+
+    for _, object in ipairs(allTextObjects(true)) do
+        local raw = objectText(object)
+        local normalized = normalize(raw)
+        local exact = normalized == target
+        local prefixed = string.match(normalized, prefix) ~= nil
+        local hasNumber = string.match(raw, "[-+]?%d*%.?%d+") ~= nil
+
+        if (exact or prefixed) and (not numericOnly or hasNumber) then
+            local score = exact and 500 or 300
+            if object:IsA("TextLabel") then score = score + 30 end
+            if object:IsA("TextButton") then score = score + 20 end
+            score = score - math.min(object.AbsolutePosition.X, 500) * 0.01
+            if score > bestScore then
+                best, bestScore = object, score
+            end
+        end
+    end
+
+    return best
+end
+
+local function locateAcrossTabs(name, tabHint, locator)
+    local found = locator()
+    if found then
+        return found, currentTab
+    end
+
+    for _, tabName in ipairs(tabSearchOrder(tabHint, name)) do
+        if openTab(tabName) then
+            found = locator()
+            if found then
+                return found, tabName
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+local function candidateRows(label)
+    local rows = {}
+    local current = label and label.Parent
+    for depth = 1, 6 do
+        if not current or current == uiRoot or current == game then
+            break
+        end
+        if current:IsA("GuiObject") then
+            table.insert(rows, {object = current, depth = depth})
+        end
+        current = current.Parent
+    end
+    return rows
+end
+
+local function interactiveObjects(row, excluded)
+    local results = {}
+    if row:IsA("GuiButton") and row ~= excluded then
+        table.insert(results, row)
+    end
+    for _, object in ipairs(descendants(row)) do
+        if object:IsA("GuiButton") and object ~= excluded and isVisible(object) then
+            table.insert(results, object)
+        end
+    end
+    return results
+end
+
+local BOOLEAN_ATTRIBUTES = {"Enabled", "On", "Toggled", "Toggle", "State", "Value", "Active"}
+local function readBooleanMetadata(object)
+    local objects = {object, object and object.Parent}
+    for _, item in ipairs(objects) do
+        if item then
+            for _, attributeName in ipairs(BOOLEAN_ATTRIBUTES) do
+                local ok, value = pcall(function()
+                    return item:GetAttribute(attributeName)
+                end)
+                if ok and type(value) == "boolean" then
+                    return value
+                end
+
+                local child = item:FindFirstChild(attributeName, true)
+                if child and child:IsA("BoolValue") then
+                    return child.Value
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function enabledColor(color)
+    return color.G >= 0.42 and color.G > color.R * 1.14 and color.G > color.B * 0.78
+end
+
+local function disabledColor(color)
+    local maximum = math.max(color.R, color.G, color.B)
+    local minimum = math.min(color.R, color.G, color.B)
+    return maximum < 0.38 and maximum - minimum < 0.1
+end
+
+local function readToggleState(button)
+    local metadata = readBooleanMetadata(button)
+    if metadata ~= nil then
+        return metadata
+    end
+
+    if button.Selected then
+        return true
+    end
+
+    local text = " " .. normalize(collectObjectTexts(button)) .. " "
+    if string.find(text, " off ", 1, true) or string.find(text, " disabled ", 1, true) then
+        return false
+    end
+    if string.find(text, " on ", 1, true) or string.find(text, " enabled ", 1, true) then
+        return true
+    end
+
+    local enabledCount, disabledCount = 0, 0
+    local visualObjects = {button}
+    for _, object in ipairs(descendants(button)) do
+        if object:IsA("GuiObject") then
+            table.insert(visualObjects, object)
+        end
+    end
+    for _, object in ipairs(visualObjects) do
+        if object.BackgroundTransparency < 0.75 then
+            if enabledColor(object.BackgroundColor3) then enabledCount = enabledCount + 1 end
+            if disabledColor(object.BackgroundColor3) then disabledCount = disabledCount + 1 end
+        end
+    end
+    if enabledCount > 0 then
+        return true
+    end
+    if disabledCount > 0 then
+        return false
+    end
+    return nil
+end
+
+local function visualSignature(object)
+    local parts = {normalize(collectObjectTexts(object))}
+    local objects = {object}
+    for _, child in ipairs(descendants(object)) do
+        if child:IsA("GuiObject") then
+            table.insert(objects, child)
+        end
+    end
+    for index, item in ipairs(objects) do
+        if index > 12 then break end
+        local color = item.BackgroundColor3
+        table.insert(parts, string.format(
+            "%.2f,%.2f,%.2f,%.2f",
+            color.R,
+            color.G,
+            color.B,
+            item.BackgroundTransparency
+        ))
+    end
+    return table.concat(parts, "|")
+end
+
+local function findToggleControl(name)
+    local label = findSettingText(name, false)
+    if not label then
+        return nil
+    end
+
+    local direct = nearestButton(label, 3)
+    if direct then
+        return direct
+    end
+
+    local labelCenterY = label.AbsolutePosition.Y + label.AbsoluteSize.Y / 2
+    local best, bestScore = nil, -math.huge
+    for _, rowInfo in ipairs(candidateRows(label)) do
+        for _, button in ipairs(interactiveObjects(rowInfo.object, label)) do
+            local centerY = button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2
+            local difference = math.abs(centerY - labelCenterY)
+            if difference <= math.max(24, rowInfo.object.AbsoluteSize.Y * 0.55) then
+                local score = 500 - rowInfo.depth * 40 - difference
+                if button.AbsolutePosition.X >= label.AbsolutePosition.X then
+                    score = score + 80
+                end
+                if score > bestScore then
+                    best, bestScore = button, score
+                end
+            end
+        end
+        if best then break end
+    end
+    return best
+end
+
+local function setToggle(name, wanted, tabHint)
+    local button = locateAcrossTabs(name, tabHint, function()
+        return findToggleControl(name)
+    end)
+    if not button then
+        return false, "toggle not found"
+    end
+
+    local state = readToggleState(button)
+    if state == wanted then
+        return true, "already " .. (wanted and "on" or "off")
+    end
+
+    if state ~= nil then
+        if not clickGui(button) then
+            return false, "toggle click failed"
+        end
+        local after = readToggleState(button)
+        if after == wanted or after == nil then
+            return true, "set " .. (wanted and "on" or "off")
+        end
+        return false, "toggle state did not change"
+    end
+
+    -- Unknown themes are calibrated with one click.  If the new state becomes
+    -- readable we can choose the requested side; otherwise default-off UIs are
+    -- handled without accidentally enabling values configured as false.
+    if not wanted then
+        return true, "left at default off (state not exposed)"
+    end
+
+    local beforeSignature = visualSignature(button)
+    if not clickGui(button) then
+        return false, "toggle click failed"
+    end
+    local after = readToggleState(button)
+    if after == false then
+        clickGui(button)
+    end
+    local changed = beforeSignature ~= visualSignature(button)
+    if after == true or changed then
+        return true, "enabled"
+    end
+    return false, "toggle gave no state feedback"
+end
+
+local function readNumberFromText(text)
+    text = tostring(text or "")
+    local value = string.match(text, ":%s*([-+]?%d*%.?%d+)%s*$")
+        or string.match(text, "([-+]?%d*%.?%d+)%s*$")
+    return value and tonumber(value) or nil
+end
+
+local function readSliderValue(label)
+    if not label or not label.Parent then
+        return nil
+    end
+    return readNumberFromText(objectText(label))
+end
+
+local NUMBER_ATTRIBUTES = {
+    minimum = {"Min", "Minimum", "MinValue", "MinimumValue", "LowerBound"},
+    maximum = {"Max", "Maximum", "MaxValue", "MaximumValue", "UpperBound"},
+    step = {"Step", "Increment", "Round", "Rounding"},
+}
+
+local function readNumberMetadata(objects, names)
+    for _, object in ipairs(objects) do
+        if object then
+            for _, name in ipairs(names) do
+                local ok, value = pcall(function()
+                    return object:GetAttribute(name)
+                end)
+                if ok and type(value) == "number" then
+                    return value
+                end
+                local child = object:FindFirstChild(name, true)
+                if child and (child:IsA("NumberValue") or child:IsA("IntValue")) then
+                    return child.Value
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function findSliderTrack(name)
+    local label = findSettingText(name, true)
+    if not label then
+        return nil
+    end
+
+    -- The TBO UI builds sliders as:
+    --   Row (Frame)
+    --     TextLabel  -- e.g. "Auto Block Range: 15"
+    --     Frame      -- input track (its child Frame is the fill)
+    -- Prefer that exact relationship before using the generic fallback below.
+    local directRow = label.Parent
+    if directRow and directRow:IsA("GuiObject") then
+        local directBest, directBestScore = nil, -math.huge
+        for _, sibling in ipairs(directRow:GetChildren()) do
+            if sibling:IsA("GuiObject") and sibling ~= label then
+                local width, height = sibling.AbsoluteSize.X, sibling.AbsoluteSize.Y
+                if width >= 45 and height >= 2 and height <= 24 and width >= height * 3 then
+                    local connectionBonus = 0
+                    if type(getconnections) == "function" then
+                        local okBegan, began = pcall(getconnections, sibling.InputBegan)
+                        local okChanged, changed = pcall(getconnections, sibling.InputChanged)
+                        if okBegan and #began > 0 then connectionBonus = connectionBonus + 1000 end
+                        if okChanged and #changed > 0 then connectionBonus = connectionBonus + 500 end
+                    end
+                    local score = width + connectionBonus
+                    if score > directBestScore then
+                        directBest, directBestScore = sibling, score
+                    end
+                end
+            end
+        end
+        if directBest then
+            return {label = label, track = directBest, row = directRow}
+        end
+    end
+
+    local labelCenterY = label.AbsolutePosition.Y + label.AbsoluteSize.Y / 2
+    local bestTrack, bestRow, bestScore = nil, nil, -math.huge
+
+    for _, rowInfo in ipairs(candidateRows(label)) do
+        local row = rowInfo.object
+        local objects = {row}
+        for _, object in ipairs(descendants(row)) do
+            if object:IsA("GuiObject") then
+                table.insert(objects, object)
+            end
+        end
+
+        for _, object in ipairs(objects) do
+            if object ~= label and not object:IsA("TextLabel") and not object:IsA("TextBox") then
+                local width, height = object.AbsoluteSize.X, object.AbsoluteSize.Y
+                if width >= 45 and height >= 2 and height <= 42 and width >= height * 2.5 then
+                    local centerY = object.AbsolutePosition.Y + height / 2
+                    local difference = math.abs(centerY - labelCenterY)
+                    local score = width - difference * 1.5 - rowInfo.depth * 15
+                    local objectName = normalize(object.Name)
+                    if string.find(objectName, "slider", 1, true) then score = score + 500 end
+                    if string.find(objectName, "track", 1, true) then score = score + 350 end
+                    if string.find(objectName, "bar", 1, true) then score = score + 250 end
+                    if object.AbsolutePosition.Y >= label.AbsolutePosition.Y then score = score + 80 end
+                    if score > bestScore then
+                        bestTrack, bestRow, bestScore = object, row, score
+                    end
+                end
+            end
+        end
+
+        if bestTrack and bestScore > 500 then
+            break
+        end
+    end
+
+    if not bestTrack then
+        return nil
+    end
+    return {label = label, track = bestTrack, row = bestRow}
+end
+
+local function sliderGeometry(control)
+    local track = control.track
+    local padding = math.max(1, math.min(5, track.AbsoluteSize.Y * 0.25))
+    local left = track.AbsolutePosition.X + padding
+    local right = track.AbsolutePosition.X + track.AbsoluteSize.X - padding
+    local y = track.AbsolutePosition.Y + track.AbsoluteSize.Y / 2
+
+    local knobX = nil
+    for _, object in ipairs(descendants(track)) do
+        if object:IsA("GuiObject") and isVisible(object) then
+            local width, height = object.AbsoluteSize.X, object.AbsoluteSize.Y
+            if width >= 4 and width <= 40 and height >= 4 and height <= 40 then
+                local center = object.AbsolutePosition.X + width / 2
+                if center >= left - 8 and center <= right + 8 then
+                    knobX = center
+                end
+            end
+        end
+    end
+    return left, right, y, knobX
 end
 
 local function mouseDrag(startX, y, finishX)
     startX = math.floor(startX + 0.5)
     finishX = math.floor(finishX + 0.5)
     y = math.floor(y + 0.5)
-
     local held = false
+
     local ok = pcall(function()
         VirtualInputManager:SendMouseMoveEvent(startX, y, game)
-        task.wait(0.015)
+        task.wait(INPUT_WAIT)
         VirtualInputManager:SendMouseButtonEvent(startX, y, 0, true, game, 1)
         held = true
-        task.wait(0.02)
-
-        for step = 1, 8 do
-            local x = startX + (finishX - startX) * (step / 8)
+        task.wait(INPUT_WAIT)
+        for step = 1, 12 do
+            local x = startX + (finishX - startX) * step / 12
             VirtualInputManager:SendMouseMoveEvent(math.floor(x + 0.5), y, game)
-            task.wait(0.012)
+            task.wait(0.01)
         end
-
         VirtualInputManager:SendMouseButtonEvent(finishX, y, 0, false, game, 1)
         held = false
     end)
@@ -712,294 +958,347 @@ local function mouseDrag(startX, y, finishX)
             VirtualInputManager:SendMouseButtonEvent(finishX, y, 0, false, game, 1)
         end)
     end
-
     return ok
 end
 
-local function waitForSliderValue(label, previous, timeout)
+local function waitForNumber(label, previous, timeout)
     local started = os.clock()
-    local latest = readSliderNumber(label)
-
+    local latest = readSliderValue(label)
     while os.clock() - started < timeout do
-        latest = readSliderNumber(label)
-        if latest ~= nil and latest ~= previous then
+        latest = readSliderValue(label)
+        if latest ~= nil and (previous == nil or latest ~= previous) then
             return latest
         end
-        task.wait(0.015)
+        task.wait(0.02)
     end
-
     return latest
 end
 
-local function setSlider(name, wanted)
-    if type(wanted) ~= "number" then
-        return false
-    end
-
-    local label = findNumericLabel(name, true)
-    if not label then
-        return false
-    end
-
-    local bar, row = findDirectSliderBar(label)
-    if not bar or not row then
-        return false
-    end
-
-    local minimum, maximum = sliderRange(name, label, bar, row)
-    wanted = math.clamp(math.floor(wanted + 0.5), minimum, maximum)
-
-    local current = readSliderNumber(label)
-    if current == wanted then
-        return true
-    end
-
-    local scrolling, oldPosition = bringIntoView(row)
-
-    label = findNumericLabel(name, true) or label
-    bar, row = findDirectSliderBar(label)
-    if not bar or not row then
-        restoreScroll(scrolling, oldPosition)
-        return false
-    end
-
-    local padding = math.max(2, math.min(5, bar.AbsoluteSize.Y / 2))
-    local left = bar.AbsolutePosition.X + padding
-    local right = bar.AbsolutePosition.X + bar.AbsoluteSize.X - padding
-    local y = bar.AbsolutePosition.Y + bar.AbsoluteSize.Y / 2
-
-    if right - left < 20 then
-        restoreScroll(scrolling, oldPosition)
-        return false
-    end
-
-    local function valueToX(value)
-        local ratio = (value - minimum) / (maximum - minimum)
-        return left + math.clamp(ratio, 0, 1) * (right - left)
-    end
-
-    current = current or minimum
-    local currentX = valueToX(current)
-    local targetX = valueToX(wanted)
-
-    mouseDrag(currentX, y, targetX)
-    local newValue = waitForSliderValue(label, current, touchMode and 0.28 or 0.18)
-
-    if newValue == current then
-        mouseClick(targetX, y)
-        newValue = waitForSliderValue(label, current, touchMode and 0.24 or 0.16)
-    end
-
-    if newValue ~= nil and newValue ~= wanted and newValue ~= current then
-        local movedPixels = targetX - currentX
-        local movedValues = newValue - current
-
-        if math.abs(movedPixels) >= 1 and movedValues ~= 0 then
-            local pixelsPerValue = movedPixels / movedValues
-            local correctedX = math.clamp(
-                targetX + (wanted - newValue) * pixelsPerValue,
-                left,
-                right
-            )
-
-            if math.abs(correctedX - targetX) >= 1 then
-                mouseDrag(targetX, y, correctedX)
-                waitForSliderValue(label, newValue, touchMode and 0.24 or 0.16)
+local function configuredRange(name)
+    local ranges = environment.slider_ranges or environment.SliderRanges
+    if type(ranges) == "table" then
+        local value = ranges[name] or ranges[normalize(name)]
+        if type(value) == "table" then
+            local minimum = tonumber(value.min or value.minimum or value[1])
+            local maximum = tonumber(value.max or value.maximum or value[2])
+            if minimum and maximum and maximum > minimum then
+                return minimum, maximum
             end
         end
     end
+    return nil, nil
+end
 
-    restoreScroll(scrolling, oldPosition)
-    return readSliderNumber(label) == wanted
+local function moveSlider(control, startX, targetX)
+    local _, _, y, knobX = sliderGeometry(control)
+    startX = knobX or startX
+    if not startX then
+        startX = targetX
+    end
+    if mouseDrag(startX, y, targetX) then
+        task.wait(STEP_WAIT)
+        return true
+    end
+    return mouseClick(targetX, y)
+end
+
+local function nearlyEqual(a, b, step)
+    if a == nil or b == nil then return false end
+    local tolerance = math.max(0.001, math.abs(step or 0) * 0.25)
+    return math.abs(a - b) <= tolerance
+end
+
+local function setSlider(name, wanted, tabHint)
+    wanted = tonumber(wanted)
+    if not wanted then
+        return false, "slider value is not numeric"
+    end
+
+    local control = locateAcrossTabs(name, tabHint, function()
+        return findSliderTrack(name)
+    end)
+    if not control then
+        return false, "slider not found"
+    end
+
+    local scrolling, original = bringIntoView(control.row)
+    waitFrames(1)
+    control = findSliderTrack(name) or control
+
+    local current = readSliderValue(control.label)
+    if current == nil then
+        restoreScroll(scrolling, original)
+        return false, "slider value label is unreadable"
+    end
+
+    local objects = {control.track, control.row, control.label}
+    local minimum = readNumberMetadata(objects, NUMBER_ATTRIBUTES.minimum)
+    local maximum = readNumberMetadata(objects, NUMBER_ATTRIBUTES.maximum)
+    local step = readNumberMetadata(objects, NUMBER_ATTRIBUTES.step)
+    if not minimum or not maximum or maximum <= minimum then
+        minimum, maximum = configuredRange(name)
+    end
+
+    local left, right, _, knobX = sliderGeometry(control)
+    if right - left < 20 then
+        restoreScroll(scrolling, original)
+        return false, "slider track is too small"
+    end
+
+    -- If the UI exposes no range, briefly sample both endpoints.  This makes
+    -- sliders with uncommon limits work without another hard-coded name.
+    if not minimum or not maximum then
+        moveSlider(control, knobX, left)
+        minimum = waitForNumber(control.label, current, 0.35)
+        local _, _, _, leftKnob = sliderGeometry(control)
+        moveSlider(control, leftKnob or left, right)
+        maximum = waitForNumber(control.label, minimum, 0.35)
+        if not minimum or not maximum or maximum <= minimum then
+            restoreScroll(scrolling, original)
+            return false, "could not calibrate slider range"
+        end
+    end
+
+    wanted = math.clamp(wanted, minimum, maximum)
+    if step and step > 0 then
+        wanted = minimum + math.floor((wanted - minimum) / step + 0.5) * step
+    end
+
+    current = readSliderValue(control.label)
+    if nearlyEqual(current, wanted, step) then
+        restoreScroll(scrolling, original)
+        return true, "already " .. tostring(current)
+    end
+
+    local ratio = (wanted - minimum) / (maximum - minimum)
+    local targetX = left + math.clamp(ratio, 0, 1) * (right - left)
+    local _, _, _, currentKnob = sliderGeometry(control)
+    if not currentKnob and current then
+        local currentRatio = (current - minimum) / (maximum - minimum)
+        currentKnob = left + math.clamp(currentRatio, 0, 1) * (right - left)
+    end
+
+    moveSlider(control, currentKnob, targetX)
+    local actual = waitForNumber(control.label, current, 0.45)
+
+    -- Pixel rounding can put the first attempt one step away.  Correct using
+    -- the observed value-to-pixel error, then verify again.
+    if actual and not nearlyEqual(actual, wanted, step) then
+        local valueSpan = maximum - minimum
+        local correction = (wanted - actual) / valueSpan * (right - left)
+        local correctedX = math.clamp(targetX + correction, left, right)
+        local _, _, _, newKnob = sliderGeometry(control)
+        moveSlider(control, newKnob or targetX, correctedX)
+        actual = waitForNumber(control.label, actual, 0.4)
+    end
+
+    restoreScroll(scrolling, original)
+    if nearlyEqual(actual, wanted, step) then
+        return true, "set to " .. tostring(actual)
+    end
+    return false, "wanted " .. tostring(wanted) .. ", got " .. tostring(actual)
 end
 
 local function findSettingButton(name)
-    local matches = findExactTextObjects(name, true)
-
-    for _, object in ipairs(matches) do
-        if object:IsA("GuiButton") and buttonHasExactText(object, name) then
-            return object
-        end
-
-        local button = nearestGuiButton(object, 3)
-        if button and buttonHasExactText(button, name) then
-            return button
-        end
-
-        local sibling = directSiblingToggle(object)
-        if sibling then
-            return sibling
-        end
+    local label = findSettingText(name, false)
+    if not label then
+        return nil
     end
 
-    for _, object in ipairs(playerGui:GetDescendants()) do
-        if object:IsA("GuiButton")
-            and isVisible(object)
-            and buttonHasSettingPrefix(object, name) then
-            return object
-        end
+    local direct = nearestButton(label, 4)
+    if direct then
+        return direct
     end
 
+    for _, rowInfo in ipairs(candidateRows(label)) do
+        local buttons = interactiveObjects(rowInfo.object, label)
+        if #buttons == 1 then
+            return buttons[1]
+        end
+    end
     return nil
 end
 
-local function findExactVisibleOption(option, excludedButton)
-    local matches = findExactTextObjects(option, true)
-
-    for _, object in ipairs(matches) do
-        local button = nil
-
-        if object:IsA("GuiButton") then
-            button = object
-        else
-            button = nearestGuiButton(object, 3)
-        end
-
-        if button
-            and button ~= excludedButton
-            and button:IsA("GuiButton")
-            and isVisible(button)
-            and buttonHasExactText(button, option) then
-            return button
+local function findVisibleOption(option, excluded)
+    local target = normalize(option)
+    local best, bestScore = nil, -math.huge
+    for _, object in ipairs(allTextObjects(true)) do
+        if normalize(objectText(object)) == target then
+            local button = nearestButton(object, 4)
+            if button and button ~= excluded and not button:IsDescendantOf(excluded) then
+                local score = 1000
+                if object:IsA("TextButton") then score = score + 100 end
+                if button.AbsolutePosition.Y >= excluded.AbsolutePosition.Y then score = score + 50 end
+                if score > bestScore then
+                    best, bestScore = button, score
+                end
+            end
         end
     end
+    return best
+end
 
+local function findTextBox(name)
+    local label = findSettingText(name, false)
+    if not label then return nil end
+    if label:IsA("TextBox") then return label end
+
+    for _, rowInfo in ipairs(candidateRows(label)) do
+        for _, object in ipairs(descendants(rowInfo.object)) do
+            if object:IsA("TextBox") and isVisible(object) then
+                return object
+            end
+        end
+    end
     return nil
 end
 
-local function selectOption(name, option)
-    option = tostring(option or "")
+local function setTextInput(name, value, tabHint)
+    local textBox = locateAcrossTabs(name, tabHint, function()
+        return findTextBox(name)
+    end)
+    if not textBox then
+        return false, "text box not found"
+    end
+
+    value = tostring(value)
+    if textBox.Text == value then
+        return true, "already set"
+    end
+
+    local ok = pcall(function()
+        textBox:CaptureFocus()
+        textBox.Text = value
+        waitFrames(1)
+        textBox:ReleaseFocus(true)
+    end)
+    if ok and textBox.Text == value then
+        return true, "text entered"
+    end
+    return false, "text entry failed"
+end
+
+local function selectOption(name, option, tabHint)
+    option = trim(option)
     if option == "" or normalize(option) == "select" or normalize(option) == "none" then
-        return false
+        return true, "empty option ignored"
     end
 
-    local control = findSettingButton(name)
+    local control = locateAcrossTabs(name, tabHint, function()
+        return findSettingButton(name)
+    end)
     if not control then
-        return false
+        return setTextInput(name, option, tabHint)
     end
 
-    if not pressGuiButton(control) then
-        return false
+    local controlText = normalize(collectObjectTexts(control))
+    if string.find(controlText, normalize(option), 1, true) then
+        return true, "already selected"
     end
 
-    task.wait(touchMode and 0.07 or 0.04)
+    if not clickGui(control) then
+        return false, "dropdown did not open"
+    end
 
-    local optionButton = findExactVisibleOption(option, control)
+    local optionButton = findVisibleOption(option, control)
     if not optionButton then
-        return false
+        return false, "option not found: " .. option
     end
-
-    return pressGuiButton(optionButton)
+    if not clickGui(optionButton) then
+        return false, "option click failed: " .. option
+    end
+    return true, "selected " .. option
 end
 
-local function notify(text)
-    if not showNotification then
-        return
+local function clickAction(name, tabHint)
+    local button = locateAcrossTabs(name, tabHint, function()
+        return findSettingButton(name)
+    end)
+    if not button then
+        return false, "button not found"
+    end
+    if clickGui(button) then
+        return true, "clicked"
+    end
+    return false, "button click failed"
+end
+
+local report = {
+    applied = 0,
+    skipped = 0,
+    settings = {},
+    screenGui = uiRoot:GetFullName(),
+}
+
+local function record(entry, ok, detail)
+    if ok then
+        report.applied = report.applied + 1
+    else
+        report.skipped = report.skipped + 1
+    end
+    table.insert(report.settings, {
+        name = entry.name,
+        value = entry.value,
+        success = ok,
+        detail = detail,
+        tab = currentTab,
+    })
+    print(string.format(
+        "[ConfigLoader] %s %s: %s",
+        ok and "OK" or "FAIL",
+        entry.name,
+        tostring(detail)
+    ))
+end
+
+for _, entry in ipairs(entries) do
+    local valueType = type(entry.value)
+    local ok, detail
+
+    if valueType == "boolean" then
+        ok, detail = setToggle(entry.name, entry.value, entry.tabHint)
+    elseif valueType == "number" then
+        ok, detail = setSlider(entry.name, entry.value, entry.tabHint)
+    elseif valueType == "string" then
+        ok, detail = selectOption(entry.name, entry.value, entry.tabHint)
+    elseif valueType == "table" and isArray(entry.value) then
+        ok = true
+        local selected = 0
+        for _, option in ipairs(entry.value) do
+            local optionOk, optionDetail = selectOption(entry.name, option, entry.tabHint)
+            if optionOk then
+                selected = selected + 1
+            else
+                ok = false
+                detail = optionDetail
+                break
+            end
+        end
+        detail = detail or ("selected " .. tostring(selected) .. " option(s)")
+    elseif valueType == "table" and entry.value.click == true then
+        ok, detail = clickAction(entry.name, entry.tabHint)
+    else
+        ok, detail = false, "unsupported config value type: " .. valueType
     end
 
+    record(entry, ok, detail)
+    task.wait(INPUT_WAIT)
+end
+
+environment.__CustomConfigReport = report
+
+restoreUiState()
+
+if showNotification then
     pcall(function()
+        local text = string.format("Applied %d setting(s)", report.applied)
+        if report.skipped > 0 then
+            text = text .. string.format("; %d failed (see console)", report.skipped)
+        end
         StarterGui:SetCore("SendNotification", {
             Title = "Config Loader",
             Text = text,
-            Duration = 4
+            Duration = 5,
         })
     end)
 end
-
-local grouped = {}
-local tabOrder = {"Main", "Target", "Combat", "Auto", "Extra", "Configs"}
-
-local function addToGroup(tabName, kind, name, value)
-    grouped[tabName] = grouped[tabName] or {
-        booleans = {},
-        numbers = {},
-        strings = {},
-        tables = {}
-    }
-
-    table.insert(grouped[tabName][kind], {
-        name = tostring(name),
-        value = value
-    })
-end
-
-for name, value in pairs(config) do
-    local tabName = tabForSetting(name)
-
-    if value == true then
-        addToGroup(tabName, "booleans", name, value)
-    elseif type(value) == "number" then
-        addToGroup(tabName, "numbers", name, value)
-    elseif type(value) == "string" then
-        local lowered = normalize(value)
-        if lowered ~= "" and lowered ~= "select" and lowered ~= "none" then
-            addToGroup(tabName, "strings", name, value)
-        end
-    elseif type(value) == "table" then
-        addToGroup(tabName, "tables", name, value)
-    end
-end
-
-local applied = 0
-local skipped = 0
-
-for _, tabName in ipairs(tabOrder) do
-    local group = grouped[tabName]
-
-    if group then
-        openTab(tabName)
-
-        table.sort(group.numbers, function(a, b) return a.name < b.name end)
-        table.sort(group.booleans, function(a, b) return a.name < b.name end)
-        table.sort(group.strings, function(a, b) return a.name < b.name end)
-        table.sort(group.tables, function(a, b) return a.name < b.name end)
-
-        -- Numbers are the only values treated as sliders.
-        for _, item in ipairs(group.numbers) do
-            if setSlider(item.name, item.value) then
-                applied = applied + 1
-            else
-                skipped = skipped + 1
-            end
-            task.wait(touchMode and 0.02 or 0.01)
-        end
-
-        -- True booleans are the only values treated as toggles.
-        for _, item in ipairs(group.booleans) do
-            if enableToggle(item.name) then
-                applied = applied + 1
-            else
-                skipped = skipped + 1
-            end
-            task.wait(touchMode and 0.015 or 0.008)
-        end
-
-        for _, item in ipairs(group.tables) do
-            local worked = false
-
-            for _, option in pairs(item.value) do
-                if selectOption(item.name, option) then
-                    worked = true
-                end
-                task.wait(touchMode and 0.015 or 0.008)
-            end
-
-            if worked then
-                applied = applied + 1
-            else
-                skipped = skipped + 1
-            end
-        end
-
-        for _, item in ipairs(group.strings) do
-            if selectOption(item.name, item.value) then
-                applied = applied + 1
-            else
-                skipped = skipped + 1
-            end
-            task.wait(touchMode and 0.015 or 0.008)
-        end
-    end
-end
-
-notify("Applied " .. tostring(applied) .. " config settings")
