@@ -797,13 +797,24 @@ local function findsliderlabel(prefix)
         if tab:IsA("ScrollingFrame") then
             for _, container in ipairs(tab:GetChildren()) do
                 if container:IsA("Frame") then
+                    local has_track = false
+                    local has_button = false
                     for _, child in ipairs(container:GetChildren()) do
-                        if child:IsA("TextLabel") then
-                            local text = normalizetext(child.Text)
-                            if text == wanted
-                                or string.sub(text, 1, #wanted + 1) == wanted .. ":"
-                                or string.sub(text, 1, #wanted + 1) == wanted .. " " then
-                                return child
+                        if child:IsA("Frame") then has_track = true end
+                        if child:IsA("TextButton") then has_button = true end
+                    end
+                    
+                    if has_track and not has_button then
+                        for _, child in ipairs(container:GetChildren()) do
+                            if child:IsA("TextLabel") then
+                                local text = normalizetext(child.Text)
+                                local hasPrefix = (text == wanted) or 
+                                                  (string.sub(text, 1, #wanted + 1) == wanted .. ":") or 
+                                                  (string.sub(text, 1, #wanted + 1) == wanted .. " ")
+                                
+                                if hasPrefix and string.match(text, "%d") then
+                                    return child
+                                end
                             end
                         end
                     end
