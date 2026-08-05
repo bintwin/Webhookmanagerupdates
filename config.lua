@@ -976,46 +976,43 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     end
 
     local function begininput(px)
-        local touchX, touchY = gettouchcoords(slider, px, y)
-        pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
-        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-        pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
-        pcall(function() vu:Button1Down(Vector2.new(px, vim_y)) end)
+        pcall(function() vman:SendTouchEvent(touchId, 0, px, y) end)
+        pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
+        pcall(function() vman:SendMouseButtonEvent(px, y, 0, true, game, 1) end)
+        pcall(function() vu:Button1Down(Vector2.new(px, y)) end)
         
-        firesig(slider, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, vim_y)
-        firesig(slider, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, vim_y)
+        firesig(slider, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, y)
+        firesig(slider, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, y)
         if slider.Parent then
-            firesig(slider.Parent, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, vim_y)
-            firesig(slider.Parent, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, vim_y)
+            firesig(slider.Parent, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, y)
+            firesig(slider.Parent, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, y)
         end
     end
 
     local function updateinput(px)
-        local touchX, touchY = gettouchcoords(slider, px, y)
-        pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
-        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-        pcall(function() vu:MoveMouse(Vector2.new(px, vim_y)) end)
+        pcall(function() vman:SendTouchEvent(touchId, 1, px, y) end)
+        pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
+        pcall(function() vu:MoveMouse(Vector2.new(px, y)) end)
         
-        firesig(slider, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, vim_y)
-        firesig(slider, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, vim_y)
+        firesig(slider, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, y)
+        firesig(slider, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, y)
         if slider.Parent then
-            firesig(slider.Parent, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, vim_y)
-            firesig(slider.Parent, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, vim_y)
+            firesig(slider.Parent, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, y)
+            firesig(slider.Parent, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, y)
         end
     end
 
     local function endinput(px)
-        local touchX, touchY = gettouchcoords(slider, px, y)
-        pcall(function() vman:SendTouchEvent(touchId, 2, touchX, touchY) end)
-        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-        pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
-        pcall(function() vu:Button1Up(Vector2.new(px, vim_y)) end)
+        pcall(function() vman:SendTouchEvent(touchId, 2, px, y) end)
+        pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
+        pcall(function() vman:SendMouseButtonEvent(px, y, 0, false, game, 1) end)
+        pcall(function() vu:Button1Up(Vector2.new(px, y)) end)
         
-        firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, vim_y)
-        firesig(slider, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, vim_y)
+        firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, y)
+        firesig(slider, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, y)
         if slider.Parent then
-            firesig(slider.Parent, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, vim_y)
-            firesig(slider.Parent, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, vim_y)
+            firesig(slider.Parent, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, y)
+            firesig(slider.Parent, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, y)
         end
     end
 
