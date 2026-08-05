@@ -1789,6 +1789,129 @@ local function dragslideronce(guiObject, startX, startY, finishX, finishY)
     return ok
 end
 
+
+-- Auto Block Range uses its exact supplied path and a known 0 to 20 range.
+-- It does not use the generic slider guessing or binary-search code.
+local function setautoblockrange(rootfunc, labelfunc, wanted)
+    if type(wanted) ~= "number" then return end
+
+    wanted = math.clamp(wanted, 0, 20)
+
+    local suppliedRoot = getsafeobject(rootfunc)
+    local label = findsliderlabel("Auto Block Range", labelfunc)
+
+    if not suppliedRoot or not label then
+        return
+    end
+
+    local function isHorizontal(object)
+        if not object or not object:IsA("GuiObject") then return false end
+
+        local width = object.AbsoluteSize.X
+        local height = object.AbsoluteSize.Y
+
+        return width >= 40
+            and height >= 2
+            and height <= 32
+            and width >= height * 3
+    end
+
+    -- The path may point at the fill. When its parent is a wider horizontal
+    -- frame on the same line, the parent is the full slider track.
+    local track = suppliedRoot
+    local parent = suppliedRoot.Parent
+
+    if parent and parent:IsA("GuiObject") and isHorizontal(parent) then
+        local rootCenterY = suppliedRoot.AbsolutePosition.Y + suppliedRoot.AbsoluteSize.Y / 2
+        local parentCenterY = parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2
+
+        if math.abs(rootCenterY - parentCenterY) <= 10
+            and parent.AbsoluteSize.X >= suppliedRoot.AbsoluteSize.X + 8 then
+            track = parent
+        end
+    end
+
+    if not isHorizontal(track) then
+        local best = nil
+        local bestWidth = 0
+
+        for _, object in ipairs(suppliedRoot:GetDescendants()) do
+            if isHorizontal(object) and object.AbsoluteSize.X > bestWidth then
+                best = object
+                bestWidth = object.AbsoluteSize.X
+            end
+        end
+
+        if best then
+            track = best
+        elseif isHorizontal(suppliedRoot.Parent) then
+            track = suppliedRoot.Parent
+        else
+            return
+        end
+    end
+
+    local currentValue = readslidernumber(label)
+    if currentValue == wanted then
+        return
+    end
+
+    local knob = findsliderknob(track, track.Parent)
+    local knobRadius = knob and math.max(2, knob.AbsoluteSize.X / 2) or 3
+    local left = track.AbsolutePosition.X + knobRadius
+    local right = track.AbsolutePosition.X + track.AbsoluteSize.X - knobRadius
+    local y = track.AbsolutePosition.Y + track.AbsoluteSize.Y / 2
+
+    if right - left < 20 then
+        return
+    end
+
+    local function valueToX(value)
+        return left + (math.clamp(value, 0, 20) / 20) * (right - left)
+    end
+
+    local startX
+    if knob then
+        startX = knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2
+    elseif currentValue ~= nil then
+        startX = valueToX(currentValue)
+    else
+        startX = left
+    end
+
+    local targetX = valueToX(wanted)
+
+    if not dragslideronce(track, startX, y, targetX, y) then
+        return
+    end
+
+    local newValue = waitforvaluechange(
+        label,
+        currentValue,
+        touchmode and 0.18 or 0.12
+    )
+
+    if newValue == wanted or newValue == nil then
+        return
+    end
+
+    -- One small correction only. This keeps it stable on mobile and avoids
+    -- the old endless back-and-forth movement.
+    local correction = ((wanted - newValue) / 20) * (right - left)
+    if math.abs(correction) < 1 then
+        return
+    end
+
+    local liveKnob = findsliderknob(track, track.Parent)
+    local correctionStartX = liveKnob
+        and (liveKnob.AbsolutePosition.X + liveKnob.AbsoluteSize.X / 2)
+        or targetX
+    local correctionTargetX = math.clamp(correctionStartX + correction, left, right)
+
+    dragslideronce(track, correctionStartX, y, correctionTargetX, y)
+    task.wait(touchmode and 0.04 or 0.025)
+end
+
 local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
     if type(wanted) ~= "number" then return end
 
@@ -1949,8 +2072,7 @@ local cntrrange = getcfgnum("Auto Counter Range", 4)
 local dlyval = getcfgnum("Click Delay", 16)
 
 if premium_mode then
-    setsliderdirect(
-        "Auto Block Range",
+    setautoblockrange(
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
         blkrange
@@ -1970,8 +2092,7 @@ if premium_mode then
         dlyval
     )
 else
-    setsliderdirect(
-        "Auto Block Range",
+    setautoblockrange(
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
         blkrange
