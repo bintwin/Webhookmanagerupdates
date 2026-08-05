@@ -847,17 +847,38 @@ end
 local fastslider
 
 
+local function getFullPath(obj)
+    if not obj then return "nil" end
+    local path = obj.Name
+    local current = obj.Parent
+    while current and current ~= game do
+        path = current.Name .. "." .. path
+        current = current.Parent
+    end
+    return path
+end
+
 local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, wantnum)
     local label = findsliderlabel(prefix)
+    
+    print("[DEBUG] Searching for slider: " .. tostring(prefix))
     if label then
+        print("[DEBUG] Found label at: " .. getFullPath(label))
         switchtab4obj(label)
-    end
-    if not label then
+    else
+        print("[DEBUG] Label NOT found for: " .. tostring(prefix))
         pcall(function()
             if fallbacklabelfunc then label = fallbacklabelfunc() end
         end)
     end
+    
     local slider = getslidertrackfromlabel(label, fallbacksliderfunc)
+    if slider then
+        print("[DEBUG] Found slider track at: " .. getFullPath(slider))
+    else
+        print("[DEBUG] Slider track NOT found for: " .. tostring(prefix))
+    end
+    
     local wantedText = tostring(prefix) .. ": " .. tostring(wantnum)
     fastslider(
         function() return slider end,
