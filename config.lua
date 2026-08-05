@@ -208,32 +208,43 @@ local function clickybtn(b)
 
     if worked then return end
 
+    local sf = b:FindFirstAncestorOfClass("ScrollingFrame")
+    if sf then
+        local maxY = sf.AbsoluteCanvasSize.Y - sf.AbsoluteWindowSize.Y
+        if maxY > 0 then
+            local targetY = b.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - (sf.AbsoluteWindowSize.Y / 2)
+            sf.CanvasPosition = Vector2.new(sf.CanvasPosition.X, math.clamp(targetY, 0, maxY))
+            task.wait(0.1)
+        end
+    end
+
     local x, y = getguicenter(b)
     if not x or not y then return end
 
+    local screenX, screenY = gettouchcoords(b, x, y)
+
     if touchmode then
         pcall(function()
-            local touchX, touchY = gettouchcoords(b, x, y)
-            vman:SendTouchEvent(0, 0, touchX, touchY)
+            vman:SendTouchEvent(0, 0, screenX, screenY)
             task.wait(0.04)
-            vman:SendTouchEvent(0, 2, touchX, touchY)
+            vman:SendTouchEvent(0, 2, screenX, screenY)
             worked = true
         end)
     end
 
     if not worked then
         pcall(function()
-            vman:SendMouseMoveEvent(x, y, game)
-            vman:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            vman:SendMouseMoveEvent(screenX, screenY, game)
+            vman:SendMouseButtonEvent(screenX, screenY, 0, true, game, 1)
             task.wait(0.04)
-            vman:SendMouseButtonEvent(x, y, 0, false, game, 1)
+            vman:SendMouseButtonEvent(screenX, screenY, 0, false, game, 1)
             worked = true
         end)
     end
 
     if not worked then
         pcall(function()
-            game:GetService("VirtualUser"):ClickButton1(Vector2.new(x, y))
+            game:GetService("VirtualUser"):ClickButton1(Vector2.new(screenX, screenY))
         end)
     end
 end
