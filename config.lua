@@ -367,7 +367,7 @@ local function opentab(tname, idxfallback)
 
     if worked then
         currenttab = tname
-        task.wait(0.35)
+        task.wait(0.12)
     end
 
     return worked
@@ -811,8 +811,11 @@ end
 
 local function findsliderlabel(prefix)
     local wanted = normalizetext(prefix)
-    for _, obj in pairs(guis:GetDescendants()) do
-        if obj:IsA("TextLabel") and isguivisible(obj) then
+    local contentarea = nil
+    pcall(function() contentarea = guis.ScreenGui.Frame.Frame end)
+    if not contentarea then return nil end
+    for _, obj in pairs(contentarea:GetDescendants()) do
+        if obj:IsA("TextLabel") then
             local text = normalizetext(obj.Text)
             if text == wanted
                 or string.sub(text, 1, #wanted + 1) == wanted .. ":"
@@ -848,24 +851,26 @@ end
 local fastslider
 
 local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, wantnum)
-    if currenttab ~= "Auto" then
-        opentab("Auto", 5)
-    end
-
     local label = findsliderlabel(prefix)
 
-    if not label then
-        for _, tabname in pairs(alltabs) do
-            if currenttab ~= tabname then
-                opentab(tabname, tabfallbacks[tabname])
+    if label then
+        local tabscroll = label.Parent
+        while tabscroll and tabscroll ~= game do
+            if tabscroll:IsA("ScrollingFrame") then
+                break
             end
-            label = findsliderlabel(prefix)
-            if label then break end
+            tabscroll = tabscroll.Parent
         end
-    end
-
-    if not label and currenttab ~= "Auto" then
-        opentab("Auto", 5)
+        if tabscroll and tabscroll:IsA("ScrollingFrame") and not tabscroll.Visible then
+            pcall(function()
+                for _, sib in pairs(tabscroll.Parent:GetChildren()) do
+                    if sib:IsA("ScrollingFrame") then
+                        sib.Visible = (sib == tabscroll)
+                    end
+                end
+            end)
+            task.wait(0.1)
+        end
     end
 
     if not label then
