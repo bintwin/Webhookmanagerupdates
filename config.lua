@@ -1029,42 +1029,49 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     task.wait(0.06)
 
-    local currentValue = readslidernumber(label)
-    if currentValue == wantnum or tostring(label.Text) == wanttxt then
-        pcall(function() endinput(x) end)
-        return
-    end
+    local attempts = 0
+    while attempts < 10 do
+        local currentValue = readslidernumber(label)
+        if currentValue == wantnum or tostring(label.Text) == wanttxt then
+            break
+        end
 
-    local direction = 1
-    if currentValue ~= nil then
-        direction = currentValue > wantnum and -1 or 1
-    end
+        local direction = 1
+        if currentValue ~= nil then
+            direction = currentValue > wantnum and -1 or 1
+        end
 
-    local nudge = math.max(4, math.floor(slider.AbsoluteSize.X / 10))
-    local testX = math.clamp(x + (nudge * direction), left, right)
+        local nudge = 4 -- Tiny imperceptible test jump
+        local testX = math.clamp(x + (nudge * direction), left, right)
 
-    if testX == x then
-        direction = -direction
-        testX = math.clamp(x + (nudge * direction), left, right)
-    end
+        if testX == x then
+            direction = -direction
+            testX = math.clamp(x + (nudge * direction), left, right)
+            if testX == x then break end -- Stuck
+        end
 
-    pcall(function() updateinput(testX) end)
-    task.wait(0.2) -- Wait for UI Tweens to fully finish before reading value
+        pcall(function() updateinput(testX) end)
+        task.wait(0.25) -- Wait for UI Tweens to fully finish before reading value
 
-    local testVal = readslidernumber(label)
-    if testVal == wantnum or tostring(label.Text) == wanttxt then
-        x = testX
-    elseif testVal and currentValue and testVal ~= currentValue then
-        local pixelsPerUnit = (testX - x) / (testVal - currentValue)
-        local diff = wantnum - testVal
-        local jumpX = math.floor(testX + (diff * pixelsPerUnit))
-        jumpX = math.clamp(jumpX, left, right)
+        local testVal = readslidernumber(label)
+        if testVal == wantnum or tostring(label.Text) == wanttxt then
+            x = testX
+            break
+        end
 
-        pcall(function() updateinput(jumpX) end)
-        task.wait(0.2)
-        x = jumpX
-    else
-        x = testX
+        if testVal and currentValue and testVal ~= currentValue then
+            local pixelsPerUnit = (testX - x) / (testVal - currentValue)
+            local diff = wantnum - testVal
+            local jumpX = math.floor(testX + (diff * pixelsPerUnit))
+            jumpX = math.clamp(jumpX, left, right)
+
+            pcall(function() updateinput(jumpX) end)
+            task.wait(0.3) -- Wait for final tween jump
+            x = jumpX
+        else
+            x = testX
+        end
+        attempts = attempts + 1
     end
 
     pcall(function() endinput(x) end)
