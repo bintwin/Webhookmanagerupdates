@@ -1030,7 +1030,7 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     task.wait(0.06)
 
     local attempts = 0
-    while attempts < 10 do
+    while attempts < 20 do
         local currentValue = readslidernumber(label)
         if currentValue == wantnum or tostring(label.Text) == wanttxt then
             break
@@ -1041,7 +1041,7 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
             direction = currentValue > wantnum and -1 or 1
         end
 
-        local nudge = 4 -- Tiny imperceptible test jump
+        local nudge = math.max(5, math.floor(slider.AbsoluteSize.X / 10)) -- Dynamic jump to guarantee a value change
         local testX = math.clamp(x + (nudge * direction), left, right)
 
         if testX == x then
@@ -1051,7 +1051,7 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
         end
 
         pcall(function() updateinput(testX) end)
-        task.wait(0.25) -- Wait for UI Tweens to fully finish before reading value
+        task.wait(0.15) -- Fast wait for UI Tweens
 
         local testVal = readslidernumber(label)
         if testVal == wantnum or tostring(label.Text) == wanttxt then
@@ -1066,7 +1066,7 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
             jumpX = math.clamp(jumpX, left, right)
 
             pcall(function() updateinput(jumpX) end)
-            task.wait(0.3) -- Wait for final tween jump
+            task.wait(0.15) -- Fast wait for final tween
             x = jumpX
         else
             x = testX
