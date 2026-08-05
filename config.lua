@@ -1637,7 +1637,7 @@ local function getsliderrange(prefix, root, track)
     end
 
     local fallbacks = {
-        ["Auto Block Range"] = {0, 20},
+        ["Auto Block Range"] = {0, 30},
         ["Auto Counter Range"] = {0, 20},
         ["Click Delay"] = {0, 20}
     }
@@ -1819,182 +1819,196 @@ local function dragslideronce(guiObject, startX, startY, finishX, finishY)
 end
 
 
--- Auto Block Range uses the row that owns the matching TextLabel.
--- row.TextLabel is the value text and row.Frame is the slider bar.
-local function setautoblockrange(rootfunc, labelfunc, wanted)
-    if type(wanted) ~= "number" then return false end
-    wanted = math.floor(wanted + 0.5)
+-- Auto Block Range uses one exact row:
+-- row.TextLabel = "Auto Block Range: 15"
+-- row.Frame     = the real slider bar
+local function forceopenautotab()
+    local sidebar = nil
 
-    local LABEL_PREFIX = "auto block range:"
+    pcall(function()
+        sidebar = guis.ScreenGui.Frame.ScrollingFrame
+    end)
 
-    local function labelmatches(label)
-        if not label or not label:IsA("TextLabel") then return false end
-        local textvalue = normalizetext(label.Text)
-        return string.sub(textvalue, 1, #LABEL_PREFIX) == LABEL_PREFIX
+    if not sidebar then return false end
+
+    local autoButton = nil
+
+    for _, object in ipairs(sidebar:GetDescendants()) do
+        if object:IsA("TextButton") and normalizetext(object.Text) == "auto" then
+            autoButton = object
+            break
+        end
+
+        if object:IsA("TextLabel") and normalizetext(object.Text) == "auto" then
+            local current = object.Parent
+
+            while current and current ~= sidebar.Parent do
+                if current:IsA("GuiButton") and current:IsDescendantOf(sidebar) then
+                    autoButton = current
+                    break
+                end
+                current = current.Parent
+            end
+
+            if autoButton then break end
+        end
     end
 
-    local function validrow(label)
-        if not labelmatches(label) then return nil, nil end
+    if not autoButton then
+        pcall(function()
+            local fallback = sidebar:GetChildren()[5]
+            if fallback and objecthastext(fallback, "Auto") then
+                autoButton = getclicktarget(fallback)
+            end
+        end)
+    end
+
+    if not autoButton then return false end
+
+    clickybtn(autoButton)
+    currenttab = "Auto"
+    globalindex = nil
+    textsearchcache = {}
+    prefixsearchcache = {}
+    task.wait(touchmode and 0.12 or 0.055)
+
+    return true
+end
+
+local function setautoblockrange(rootfunc, labelfunc, wanted)
+    if type(wanted) ~= "number" then return false end
+
+    local MIN_VALUE = 0
+    local MAX_VALUE = 30
+    local DEFAULT_TEXT = "auto block range: 15"
+    local PREFIX = "auto block range:"
+
+    wanted = math.clamp(math.floor(wanted + 0.5), MIN_VALUE, MAX_VALUE)
+
+    local function ismatchinglabel(object)
+        if not object or not object:IsA("TextLabel") then return false end
+
+        local text = normalizetext(object.Text)
+        return text == DEFAULT_TEXT or string.sub(text, 1, #PREFIX) == PREFIX
+    end
+
+    local function getrowandbar(label)
+        if not ismatchinglabel(label) then return nil, nil end
 
         local row = label.Parent
         if not row or not row:IsA("Frame") then return nil, nil end
         if row:FindFirstChild("TextLabel") ~= label then return nil, nil end
 
+        -- The bar is the direct Frame sibling of TextLabel.
         local bar = row:FindFirstChild("Frame")
         if not bar or not bar:IsA("Frame") or bar.Parent ~= row then
             return nil, nil
         end
 
-        if bar.AbsoluteSize.X < 35 or bar.AbsoluteSize.Y < 2 then
+        local width = bar.AbsoluteSize.X
+        local height = bar.AbsoluteSize.Y
+
+        if width < 35 or height < 2 or width < height * 3 then
             return nil, nil
         end
 
         return row, bar
     end
 
-    local function findrow()
-        local root = guis
+    local function findrowandbar()
+        local searchRoot = guis
+
         pcall(function()
-            root = guis.ScreenGui.Frame.Frame
+            searchRoot = guis.ScreenGui.Frame.Frame
         end)
 
-        local visibleMatch = nil
-        local hiddenMatch = nil
+        local exact = nil
+        local prefix = nil
 
-        for _, object in ipairs(root:GetDescendants()) do
-            if object:IsA("TextLabel") and labelmatches(object) then
-                local row, bar = validrow(object)
+        for _, object in ipairs(searchRoot:GetDescendants()) do
+            if object:IsA("TextLabel") and ismatchinglabel(object) then
+                local row, bar = getrowandbar(object)
+
                 if row and bar then
-                    if isguivisible(object) and isguivisible(bar) then
-                        visibleMatch = {object, row, bar}
-                        break
-                    elseif not hiddenMatch then
-                        hiddenMatch = {object, row, bar}
+                    local entry = {object, row, bar}
+                    local text = normalizetext(object.Text)
+
+                    if text == DEFAULT_TEXT then
+                        if isguivisible(object) and isguivisible(bar) then
+                            return object, row, bar
+                        end
+                        exact = exact or entry
+                    elseif isguivisible(object) and isguivisible(bar) then
+                        prefix = entry
+                    elseif not prefix then
+                        prefix = entry
                     end
                 end
             end
         end
 
-        local found = visibleMatch or hiddenMatch
-        if found then
-            return found[1], found[2], found[3]
-        end
+        local found = exact or prefix
+        if found then return found[1], found[2], found[3] end
 
+        -- Hardcoded paths are fallback only.
         local fallbackLabel = nil
-        local fallbackBar = nil
-
         pcall(function()
             if labelfunc then fallbackLabel = labelfunc() end
         end)
+
+        local row, bar = getrowandbar(fallbackLabel)
+        if row and bar then return fallbackLabel, row, bar end
+
+        local fallbackBar = nil
         pcall(function()
             if rootfunc then fallbackBar = rootfunc() end
         end)
 
-        local row, exactBar = validrow(fallbackLabel)
-        if row and exactBar then
-            if fallbackBar == exactBar then
-                return fallbackLabel, row, exactBar
+        if fallbackLabel and fallbackBar and fallbackBar:IsA("Frame") then
+            local fallbackRow = fallbackLabel.Parent
+            if fallbackRow and fallbackBar.Parent == fallbackRow then
+                return fallbackLabel, fallbackRow, fallbackBar
             end
-            return fallbackLabel, row, exactBar
         end
 
         return nil, nil, nil
     end
 
-    local function findfillend(bar)
-        local barLeft = bar.AbsolutePosition.X
-        local barRight = barLeft + bar.AbsoluteSize.X
-        local barTop = bar.AbsolutePosition.Y
-        local barBottom = barTop + bar.AbsoluteSize.Y
-        local best = nil
-        local bestScore = -math.huge
+    -- Always press the real Auto tab once. currenttab can be stale after silent scans.
+    forceopenautotab()
 
-        local function check(object, depthBonus)
-            if not object:IsA("GuiObject") then return end
-            if object == bar then return end
-            if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then return end
-
-            local left = object.AbsolutePosition.X
-            local right = left + object.AbsoluteSize.X
-            local top = object.AbsolutePosition.Y
-            local bottom = top + object.AbsoluteSize.Y
-            local height = object.AbsoluteSize.Y
-            local width = object.AbsoluteSize.X
-
-            if width < 1 or height < 1 then return end
-            if left < barLeft - 3 or right > barRight + 3 then return end
-            if top < barTop - 4 or bottom > barBottom + 4 then return end
-
-            local score = depthBonus
-            if object.Parent == bar then score = score + 200 end
-            if object:IsA("Frame") then score = score + 80 end
-            if math.abs(left - barLeft) <= 5 then score = score + 160 end
-            score = score + math.min(width, bar.AbsoluteSize.X)
-            score = score - math.abs(height - bar.AbsoluteSize.Y) * 3
-
-            if score > bestScore then
-                best = object
-                bestScore = score
-            end
-        end
-
-        for _, child in ipairs(bar:GetChildren()) do
-            check(child, 100)
-        end
-        for _, object in ipairs(bar:GetDescendants()) do
-            check(object, 0)
-        end
-
-        if best then
-            return math.clamp(best.AbsolutePosition.X + best.AbsoluteSize.X, barLeft, barRight)
-        end
-
-        local knob = findsliderknob(bar, bar.Parent)
-        if knob then
-            return math.clamp(knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2, barLeft, barRight)
-        end
-
-        return nil
-    end
-
-    local label, row, bar = findrow()
-
-    if not label or not row or not bar or not isguivisible(label) or not isguivisible(bar) then
-        opentab("Auto", 5)
-        task.wait(touchmode and 0.08 or 0.04)
-        label, row, bar = findrow()
-    end
-
+    local label, row, bar = findrowandbar()
     if not label or not row or not bar then return false end
     if not isguivisible(label) or not isguivisible(bar) then return false end
 
     local currentValue = readslidernumber(label)
-    if currentValue == wanted then return true end
     if currentValue == nil then return false end
+    if currentValue == wanted then return true end
 
-    local scrolling, oldCanvasPosition = bringintoviewtemporarily(bar)
-    task.wait(touchmode and 0.05 or 0.025)
+    local left = bar.AbsolutePosition.X
+    local right = left + bar.AbsoluteSize.X
+    local y = bar.AbsolutePosition.Y + (bar.AbsoluteSize.Y / 2)
+    local width = right - left
 
-    local left = bar.AbsolutePosition.X + 2
-    local right = bar.AbsolutePosition.X + bar.AbsoluteSize.X - 2
-    local y = bar.AbsolutePosition.Y + bar.AbsoluteSize.Y / 2
+    if width < 20 then return false end
 
-    if right - left < 20 then
-        restorescroll(scrolling, oldCanvasPosition)
-        return false
+    local function valuex(value)
+        local ratio = (math.clamp(value, MIN_VALUE, MAX_VALUE) - MIN_VALUE)
+            / (MAX_VALUE - MIN_VALUE)
+        return left + ratio * width
     end
 
-    local function releaseinput(x, yPosition)
-        local releaseX = math.floor(x + 0.5)
-        local releaseY = math.floor(yPosition + 0.5)
+    local function releaseall(x, yPosition)
+        local px = math.floor(x + 0.5)
+        local py = math.floor(yPosition + 0.5)
 
         pcall(function()
-            local touchX, touchY = gettouchcoords(bar, releaseX, releaseY)
-            vman:SendTouchEvent(0, 2, touchX, touchY)
+            local tx, ty = gettouchcoords(bar, px, py)
+            vman:SendTouchEvent(0, 2, tx, ty)
         end)
 
         pcall(function()
-            vman:SendMouseButtonEvent(releaseX, releaseY, 0, false, game, 1)
+            vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
         end)
 
         if type(mouse1release) == "function" then
@@ -2002,106 +2016,162 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
         end
     end
 
-    local function dragto(startX, finishX, previousValue)
-        startX = math.clamp(startX, left, right)
-        finishX = math.clamp(finishX, left, right)
+    local function waitread(oldValue)
+        local deadline = os.clock() + (touchmode and 0.24 or 0.14)
+        local value = readslidernumber(label)
 
-        local sx = math.floor(startX + 0.5)
-        local fx = math.floor(finishX + 0.5)
+        while os.clock() < deadline do
+            value = readslidernumber(label)
+            if value ~= nil and value ~= oldValue then
+                return value
+            end
+            task.wait(0.01)
+        end
+
+        return readslidernumber(label)
+    end
+
+    local function touchtap(x)
+        local px = math.floor(math.clamp(x, left + 1, right - 1) + 0.5)
+        local py = math.floor(y + 0.5)
+        local tx, ty = gettouchcoords(bar, px, py)
+        local held = false
+
+        local ok = pcall(function()
+            vman:SendTouchEvent(0, 0, tx, ty)
+            held = true
+            task.wait(0.035)
+            vman:SendTouchEvent(0, 2, tx, ty)
+            held = false
+        end)
+
+        if held then releaseall(px, py) end
+        return ok
+    end
+
+    local function mousetap(x)
+        local px = math.floor(math.clamp(x, left + 1, right - 1) + 0.5)
         local py = math.floor(y + 0.5)
         local held = false
 
         local ok = pcall(function()
-            if touchmode then
-                local touchSX, touchSY = gettouchcoords(bar, sx, py)
-                local touchFX, touchFY = gettouchcoords(bar, fx, py)
+            vman:SendMouseMoveEvent(px, py, game)
+            vman:SendMouseButtonEvent(px, py, 0, true, game, 1)
+            held = true
+            task.wait(0.025)
+            vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
+            held = false
+        end)
 
-                vman:SendTouchEvent(0, 0, touchSX, touchSY)
-                held = true
-                task.wait(0.035)
-                vman:SendTouchEvent(0, 1, touchFX, touchFY)
-                task.wait(0.045)
-                vman:SendTouchEvent(0, 2, touchFX, touchFY)
-                held = false
-            elseif type(mousemoveabs) == "function"
-                and type(mouse1press) == "function"
-                and type(mouse1release) == "function" then
+        if held then releaseall(px, py) end
+        return ok
+    end
 
-                mousemoveabs(sx, py)
-                task.wait(0.015)
-                mouse1press()
+    local function drag(startX, finishX, useTouch)
+        startX = math.clamp(startX, left + 1, right - 1)
+        finishX = math.clamp(finishX, left + 1, right - 1)
+
+        local sx = math.floor(startX + 0.5)
+        local fx = math.floor(finishX + 0.5)
+        local py = math.floor(y + 0.5)
+        local steps = useTouch and 7 or 5
+        local held = false
+
+        local ok = pcall(function()
+            if useTouch then
+                local tx, ty = gettouchcoords(bar, sx, py)
+                vman:SendTouchEvent(0, 0, tx, ty)
                 held = true
                 task.wait(0.025)
-                mousemoveabs(fx, py)
-                task.wait(0.04)
-                mouse1release()
+
+                for step = 1, steps do
+                    local alpha = step / steps
+                    local x = sx + (fx - sx) * alpha
+                    local moveX, moveY = gettouchcoords(bar, x, py)
+                    vman:SendTouchEvent(0, 1, moveX, moveY)
+                    task.wait(0.012)
+                end
+
+                local endX, endY = gettouchcoords(bar, fx, py)
+                vman:SendTouchEvent(0, 2, endX, endY)
                 held = false
             else
                 vman:SendMouseMoveEvent(sx, py, game)
                 vman:SendMouseButtonEvent(sx, py, 0, true, game, 1)
                 held = true
-                task.wait(0.025)
-                vman:SendMouseMoveEvent(fx, py, game)
-                task.wait(0.04)
+                task.wait(0.02)
+
+                for step = 1, steps do
+                    local alpha = step / steps
+                    local x = math.floor(sx + (fx - sx) * alpha + 0.5)
+                    vman:SendMouseMoveEvent(x, py, game)
+                    task.wait(0.012)
+                end
+
                 vman:SendMouseButtonEvent(fx, py, 0, false, game, 1)
                 held = false
             end
         end)
 
-        if held then releaseinput(fx, py) end
-        if not ok then return nil end
-
-        return waitforvaluechange(label, previousValue, touchmode and 0.22 or 0.14)
-            or readslidernumber(label)
+        if held then releaseall(fx, py) end
+        return ok
     end
 
-    local startX = findfillend(bar)
-    if not startX then
-        restorescroll(scrolling, oldCanvasPosition)
-        return false
+    local targetX = valuex(wanted)
+
+    -- First try a direct press on the exact 0 to 30 position.
+    local before = currentValue
+    if touchmode then
+        touchtap(targetX)
+    else
+        mousetap(targetX)
     end
 
-    local originalValue = currentValue
-    local originalX = startX
-    local edgeX = wanted > currentValue and right or left
-    local edgeValue = dragto(startX, edgeX, currentValue)
-
-    if edgeValue == wanted then
-        releaseinput(edgeX, y)
-        restorescroll(scrolling, oldCanvasPosition)
+    currentValue = waitread(before)
+    if currentValue == wanted then
+        releaseall(targetX, y)
         return true
     end
 
-    if edgeValue == nil or edgeValue == originalValue then
-        releaseinput(edgeX, y)
-        restorescroll(scrolling, oldCanvasPosition)
-        return false
-    end
+    -- If tapping is unsupported, drag from the current mapped position.
+    for attempt = 1, 3 do
+        currentValue = readslidernumber(label)
+        if currentValue == nil or currentValue == wanted then break end
 
-    local pixelsPerValue = (edgeX - originalX) / (edgeValue - originalValue)
-    if pixelsPerValue ~= pixelsPerValue or math.abs(pixelsPerValue) < 0.05 then
-        releaseinput(edgeX, y)
-        restorescroll(scrolling, oldCanvasPosition)
-        return false
-    end
+        local startX = valuex(currentValue)
+        local correctedTarget = targetX
 
-    local targetX = math.clamp(originalX + (wanted - originalValue) * pixelsPerValue, left, right)
-    local liveStartX = findfillend(bar) or edgeX
-    local reachedValue = dragto(liveStartX, targetX, edgeValue)
+        -- Correct one rounded step when the first mapping lands beside the value.
+        if attempt > 1 then
+            correctedTarget = math.clamp(
+                targetX + ((wanted - currentValue) / (MAX_VALUE - MIN_VALUE)) * width,
+                left + 1,
+                right - 1
+            )
+        end
 
-    if reachedValue and reachedValue ~= wanted then
-        local correctionX = math.clamp(targetX + (wanted - reachedValue) * pixelsPerValue, left, right)
-        local correctionStart = findfillend(bar) or targetX
+        local oldValue = currentValue
+        drag(startX, correctedTarget, touchmode)
+        currentValue = waitread(oldValue)
 
-        if math.abs(correctionX - correctionStart) >= 1 then
-            reachedValue = dragto(correctionStart, correctionX, reachedValue)
-            targetX = correctionX
+        if currentValue == wanted then
+            targetX = correctedTarget
+            break
+        end
+
+        -- Delta mobile sometimes responds to mouse simulation but not touch dragging.
+        if touchmode and currentValue == oldValue and attempt == 2 then
+            mousetap(correctedTarget)
+            currentValue = waitread(oldValue)
+
+            if currentValue ~= wanted then
+                drag(startX, correctedTarget, false)
+                currentValue = waitread(currentValue)
+            end
         end
     end
 
-    releaseinput(targetX, y)
-    restorescroll(scrolling, oldCanvasPosition)
-
+    releaseall(targetX, y)
     return readslidernumber(label) == wanted
 end
 
@@ -2263,8 +2333,7 @@ local cntrrange = getcfgnum("Auto Counter Range", 4)
 local dlyval = getcfgnum("Click Delay", 16)
 
 -- The three sliders live on the Auto page in both free and premium modes.
-opentab("Auto", 5)
-task.wait(touchmode and 0.08 or 0.04)
+forceopenautotab()
 
 if premium_mode then
     setautoblockrange(
