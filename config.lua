@@ -1029,8 +1029,11 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     task.wait(0.06)
 
+    local step = math.max(1, math.floor(slider.AbsoluteSize.X / 60)) -- roughly 1.5% steps
     local attempts = 0
-    while attempts < 20 do
+    local lastDir = 0
+
+    while attempts < 150 do
         local currentValue = readslidernumber(label)
         if currentValue == wantnum or tostring(label.Text) == wanttxt then
             break
@@ -1041,36 +1044,22 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
             direction = currentValue > wantnum and -1 or 1
         end
 
-        local nudge = math.max(5, math.floor(slider.AbsoluteSize.X / 10)) -- Dynamic jump to guarantee a value change
-        local testX = math.clamp(x + (nudge * direction), left, right)
+        if lastDir ~= 0 and direction ~= lastDir then
+            step = math.max(1, math.floor(step / 2)) -- slow down if overshot
+        end
+        lastDir = direction
 
-        if testX == x then
-            direction = -direction
-            testX = math.clamp(x + (nudge * direction), left, right)
-            if testX == x then break end -- Stuck
+        local nextX = math.clamp(x + (step * direction), left, right)
+
+        if nextX == x then
+            if step <= 1 then break end
+            step = 1
         end
 
-        pcall(function() updateinput(testX) end)
-        task.wait(0.15) -- Fast wait for UI Tweens
+        x = nextX
+        pcall(function() updateinput(x) end)
+        task.wait(0.04) -- Extremely fast checking
 
-        local testVal = readslidernumber(label)
-        if testVal == wantnum or tostring(label.Text) == wanttxt then
-            x = testX
-            break
-        end
-
-        if testVal and currentValue and testVal ~= currentValue then
-            local pixelsPerUnit = (testX - x) / (testVal - currentValue)
-            local diff = wantnum - testVal
-            local jumpX = math.floor(testX + (diff * pixelsPerUnit))
-            jumpX = math.clamp(jumpX, left, right)
-
-            pcall(function() updateinput(jumpX) end)
-            task.wait(0.15) -- Fast wait for final tween
-            x = jumpX
-        else
-            x = testX
-        end
         attempts = attempts + 1
     end
 
