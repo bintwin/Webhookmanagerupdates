@@ -1040,8 +1040,10 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local currentValue = readslidernumber(label)
     local attempts = 0
+    local step = math.max(4, math.floor(slider.AbsoluteSize.X / 15))
+    local lastDir = 0
 
-    while attempts < 40 do
+    while attempts < 100 do
         currentValue = readslidernumber(label)
         if currentValue == wantnum or tostring(label.Text) == wanttxt then
             break
@@ -1052,40 +1054,22 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
             direction = currentValue > wantnum and -1 or 1
         end
 
-        local nudge = math.max(2, math.floor(slider.AbsoluteSize.X / 30))
-        local testX = math.clamp(x + (nudge * direction), left, right)
+        if lastDir ~= 0 and direction ~= lastDir then
+            step = math.max(1, math.floor(step / 1.5))
+            task.wait(0.01)
+        end
+        lastDir = direction
 
-        if testX == x then
-            direction = -direction
-            testX = math.clamp(x + (nudge * direction), left, right)
+        local nextX = math.clamp(x + (step * direction), left, right)
+
+        if nextX == x then
+            if step <= 1 then break end
+            step = 1
         end
 
-        pcall(function() updateinput(testX) end)
-        task.wait(0.02)
-
-        local testVal = readslidernumber(label)
-        if testVal == wantnum or tostring(label.Text) == wanttxt then
-            x = testX
-            break
-        end
-
-        if testVal and currentValue and testVal ~= currentValue then
-            local pixelsPerUnit = (testX - x) / (testVal - currentValue)
-            local diff = wantnum - testVal
-            local jumpX = math.floor(testX + (diff * pixelsPerUnit))
-            jumpX = math.clamp(jumpX, left, right)
-
-            pcall(function() updateinput(jumpX) end)
-            task.wait(0.03)
-
-            x = jumpX
-            currentValue = readslidernumber(label)
-            if currentValue == wantnum or tostring(label.Text) == wanttxt then
-                break
-            end
-        else
-            x = testX
-        end
+        x = nextX
+        pcall(function() updateinput(x) end)
+        task.wait(touchmode and 0.025 or 0.015)
 
         attempts = attempts + 1
     end
