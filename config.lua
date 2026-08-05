@@ -1795,13 +1795,12 @@ end
 local function setautoblockrange(rootfunc, labelfunc, wanted)
     if type(wanted) ~= "number" then return false end
 
-    wanted = math.floor(math.clamp(wanted, 0, 20) + 0.5)
+    wanted = math.floor(wanted + 0.5)
 
     local suppliedRoot = getsafeobject(rootfunc)
-    local label = getsafeobject(labelfunc)
+    local label = findsliderlabel("Auto Block Range", labelfunc)
 
-    if not suppliedRoot or not label
-        or not (label:IsA("TextLabel") or label:IsA("TextButton")) then
+    if not label then
         return false
     end
 
@@ -1810,243 +1809,354 @@ local function setautoblockrange(rootfunc, labelfunc, wanted)
         return true
     end
 
-    local scrolling, oldCanvasPosition = bringintoviewtemporarily(suppliedRoot)
-    task.wait(touchmode and 0.065 or 0.04)
+    local function hasReadableText(object)
+        if object:IsA("TextButton") or object:IsA("TextLabel") or object:IsA("TextBox") then
+            return normalizetext(object.Text) ~= ""
+        end
 
-    local function isHorizontal(object)
+        for _, child in ipairs(object:GetDescendants()) do
+            if child:IsA("TextButton") or child:IsA("TextLabel") or child:IsA("TextBox") then
+                if normalizetext(child.Text) ~= "" then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    local function looksLikeTrack(object)
         if not object or not object:IsA("GuiObject") then return false end
+        if object:IsA("TextLabel") or object:IsA("TextBox") or object:IsA("ScrollingFrame") then
+            return false
+        end
 
         local width = object.AbsoluteSize.X
         local height = object.AbsoluteSize.Y
 
-        return width >= 40
-            and height >= 2
-            and height <= 30
-            and width >= height * 3
+        return width >= 80
+            and height >= 3
+            and height <= 32
+            and width >= height * 5
+            and not hasReadableText(object)
     end
 
-    -- The supplied object can be the fill or the knob. Use it directly unless
-    -- its immediate parent is a wider bar on the exact same line. Never walk
-    -- farther upward because that can select the whole settings row.
-    local track = suppliedRoot
-    local parent = suppliedRoot.Parent
+    local labelBottom = label.AbsolutePosition.Y + label.AbsoluteSize.Y
+    local labelCenterX = label.AbsolutePosition.X + label.AbsoluteSize.X / 2
+    local checked = {}
+    local bestTrack = nil
+    local bestScore = -math.huge
 
-    if parent and parent:IsA("GuiObject") and isHorizontal(parent) then
-        local rootCenterY = suppliedRoot.AbsolutePosition.Y + suppliedRoot.AbsoluteSize.Y / 2
-        local parentCenterY = parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2
+    local scopes = {
+        label.Parent,
+        label.Parent and label.Parent.Parent,
+        suppliedRoot,
+        suppliedRoot and suppliedRoot.Parent,
+        suppliedRoot and suppliedRoot.Parent and suppliedRoot.Parent.Parent,
+        suppliedRoot and getcommonancestor(suppliedRoot, label)
+    }
 
-        if math.abs(rootCenterY - parentCenterY) <= 8
-            and parent.AbsoluteSize.X >= suppliedRoot.AbsoluteSize.X + 6 then
-            track = parent
+    local function scoreTrack(object)
+        if checked[object] or not looksLikeTrack(object) then return end
+        checked[object] = true
+
+        local left = object.AbsolutePosition.X
+        local right = left + object.AbsoluteSize.X
+        local centerY = object.AbsolutePosition.Y + object.AbsoluteSize.Y / 2
+        local below = centerY - labelBottom
+
+        -- Auto Block's bar is directly below its own value label.
+        if below < -6 or below > 95 then return end
+        if labelCenterX < left - 80 or labelCenterX > right + 80 then return end
+
+        local score = object.AbsoluteSize.X - math.abs(below - 20) * 6
+
+        -- The full grey track is wider than its coloured fill.
+        if suppliedRoot then
+            if object == suppliedRoot then score = score + 30 end
+            if suppliedRoot:IsDescendantOf(object) then score = score + 180 end
+            if object:IsDescendantOf(suppliedRoot) then score = score + 40 end
+            if object == suppliedRoot.Parent then score = score + 220 end
         end
-    elseif not isHorizontal(track) then
-        local best = nil
-        local bestWidth = 0
 
-        for _, object in ipairs(suppliedRoot:GetDescendants()) do
-            if isHorizontal(object) and object.AbsoluteSize.X > bestWidth then
-                best = object
-                bestWidth = object.AbsoluteSize.X
+        local lowerName = string.lower(tostring(object.Name))
+        if string.find(lowerName, "track", 1, true) then score = score + 240 end
+        if string.find(lowerName, "slider", 1, true) then score = score + 220 end
+        if string.find(lowerName, "bar", 1, true) then score = score + 80 end
+        if string.find(lowerName, "fill", 1, true) then score = score - 180 end
+
+        if score > bestScore then
+            bestScore = score
+            bestTrack = object
+        end
+    end
+
+    for _, scope in ipairs(scopes) do
+        if scope and scope ~= game then
+            scoreTrack(scope)
+            for _, object in ipairs(scope:GetDescendants()) do
+                scoreTrack(object)
             end
         end
-
-        if best then
-            track = best
-        end
     end
 
-    if not isHorizontal(track) then
+    local track = bestTrack
+    if not track then
+        return false
+    end
+
+    local scrolling, oldCanvasPosition = bringintoviewtemporarily(track)
+    task.wait(touchmode and 0.08 or 0.04)
+
+    -- Refresh positions after scrolling.
+    local left = track.AbsolutePosition.X + math.max(3, track.AbsoluteSize.Y / 2)
+    local right = track.AbsolutePosition.X + track.AbsoluteSize.X - math.max(3, track.AbsoluteSize.Y / 2)
+    local y = track.AbsolutePosition.Y + track.AbsoluteSize.Y / 2
+
+    if right - left < 40 then
         restorescroll(scrolling, oldCanvasPosition)
         return false
     end
 
-    local knob = findsliderknob(track, track)
-    if not knob and suppliedRoot.AbsoluteSize.X <= 34 and suppliedRoot.AbsoluteSize.Y <= 34 then
-        knob = suppliedRoot
-    end
-
-    local knobRadius = knob and math.max(2, knob.AbsoluteSize.X / 2) or 3
-    local left = track.AbsolutePosition.X + knobRadius
-    local right = track.AbsolutePosition.X + track.AbsoluteSize.X - knobRadius
-    local y = knob
-        and (knob.AbsolutePosition.Y + knob.AbsoluteSize.Y / 2)
-        or (suppliedRoot.AbsolutePosition.Y + suppliedRoot.AbsoluteSize.Y / 2)
-
-    if right - left < 20 then
-        restorescroll(scrolling, oldCanvasPosition)
-        return false
-    end
-
-    currentValue = readslidernumber(label)
-
-    local x = nil
-    if knob then
-        x = knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2
-    elseif currentValue ~= nil then
-        x = left + (math.clamp(currentValue, 0, 20) / 20) * (right - left)
-    else
-        x = suppliedRoot.AbsolutePosition.X + suppliedRoot.AbsoluteSize.X / 2
-    end
-
-    x = math.clamp(x, left, right)
-
-    -- Virtual input uses screen coordinates. Add the Roblox inset only when
-    -- this ScreenGui does not ignore it.
-    local function geteventcoords(rawX, rawY)
-        local finalX = rawX
-        local finalY = rawY
-        local addInset = true
-        local screenGui = suppliedRoot
-
-        while screenGui and screenGui ~= game do
-            if screenGui:IsA("ScreenGui") then
-                pcall(function()
-                    addInset = not screenGui.IgnoreGuiInset
-                end)
-                break
-            end
-            screenGui = screenGui.Parent
-        end
-
-        if addInset then
-            pcall(function()
-                local topLeftInset = guiservice:GetGuiInset()
-                finalX = finalX + topLeftInset.X
-                finalY = finalY + topLeftInset.Y
-            end)
-        end
-
-        return math.floor(finalX + 0.5), math.floor(finalY + 0.5)
-    end
-
-    local held = false
-    local usingExecutorMouse = not touchmode
-        and type(mousemoveabs) == "function"
-        and type(mouse1press) == "function"
-        and type(mouse1release) == "function"
-
-    local lastInputX, lastInputY = geteventcoords(x, y)
-
-    local function beginhold(rawX, rawY)
-        local inputX, inputY = geteventcoords(rawX, rawY)
-        lastInputX, lastInputY = inputX, inputY
-
-        if touchmode then
-            vman:SendTouchEvent(0, 0, inputX, inputY)
-        elseif usingExecutorMouse then
-            mousemoveabs(inputX, inputY)
-            task.wait(0.012)
-            mouse1press()
-        else
-            vman:SendMouseMoveEvent(inputX, inputY, game)
-            vman:SendMouseButtonEvent(inputX, inputY, 0, true, game, 1)
-        end
-
-        held = true
-    end
-
-    local function movehold(rawX, rawY)
-        local inputX, inputY = geteventcoords(rawX, rawY)
-        lastInputX, lastInputY = inputX, inputY
-
-        if touchmode then
-            vman:SendTouchEvent(0, 1, inputX, inputY)
-        elseif usingExecutorMouse then
-            mousemoveabs(inputX, inputY)
-        else
-            vman:SendMouseMoveEvent(inputX, inputY, game)
-        end
-    end
-
-    local function endhold()
-        if not held then return end
-
+    local function releaseAt(x, yPos)
         pcall(function()
+            vman:SendTouchEvent(0, 2, math.floor(x + 0.5), math.floor(yPos + 0.5))
+        end)
+        pcall(function()
+            vman:SendMouseButtonEvent(
+                math.floor(x + 0.5),
+                math.floor(yPos + 0.5),
+                0,
+                false,
+                game,
+                1
+            )
+        end)
+        if type(mouse1release) == "function" then
+            pcall(mouse1release)
+        end
+    end
+
+    local function tapTrack(x)
+        x = math.clamp(x, left, right)
+        local px = math.floor(x + 0.5)
+        local py = math.floor(y + 0.5)
+
+        local ok = pcall(function()
             if touchmode then
-                vman:SendTouchEvent(0, 2, lastInputX, lastInputY)
-            elseif usingExecutorMouse then
+                -- AbsolutePosition already uses the correct on-screen coordinates.
+                -- Adding GuiInset here was what made mobile hit the row above.
+                vman:SendTouchEvent(0, 0, px, py)
+                task.wait(0.025)
+                vman:SendTouchEvent(0, 2, px, py)
+            elseif type(mousemoveabs) == "function"
+                and type(mouse1press) == "function"
+                and type(mouse1release) == "function" then
+                mousemoveabs(px, py)
+                task.wait(0.012)
+                mouse1press()
+                task.wait(0.02)
                 mouse1release()
             else
-                vman:SendMouseButtonEvent(lastInputX, lastInputY, 0, false, game, 1)
+                vman:SendMouseMoveEvent(px, py, game)
+                vman:SendMouseButtonEvent(px, py, 0, true, game, 1)
+                task.wait(0.02)
+                vman:SendMouseButtonEvent(px, py, 0, false, game, 1)
             end
         end)
 
-        held = false
+        releaseAt(px, py)
+
+        if not ok then
+            return nil
+        end
+
+        local deadline = os.clock() + (touchmode and 0.16 or 0.1)
+        local value = readslidernumber(label)
+
+        repeat
+            task.wait(0.01)
+            local updated = readslidernumber(label)
+            if updated ~= nil then
+                value = updated
+            end
+        until os.clock() >= deadline
+
+        return value
     end
 
+    local function dragTrack(startX, finishX)
+        startX = math.clamp(startX, left, right)
+        finishX = math.clamp(finishX, left, right)
+
+        local sx = math.floor(startX + 0.5)
+        local fx = math.floor(finishX + 0.5)
+        local py = math.floor(y + 0.5)
+        local held = false
+
+        local ok = pcall(function()
+            if touchmode then
+                vman:SendTouchEvent(0, 0, sx, py)
+                held = true
+                task.wait(0.03)
+                vman:SendTouchEvent(0, 1, fx, py)
+                task.wait(0.03)
+                vman:SendTouchEvent(0, 2, fx, py)
+                held = false
+            elseif type(mousemoveabs) == "function"
+                and type(mouse1press) == "function"
+                and type(mouse1release) == "function" then
+                mousemoveabs(sx, py)
+                task.wait(0.012)
+                mouse1press()
+                held = true
+                task.wait(0.025)
+                mousemoveabs(fx, py)
+                task.wait(0.03)
+                mouse1release()
+                held = false
+            else
+                vman:SendMouseMoveEvent(sx, py, game)
+                vman:SendMouseButtonEvent(sx, py, 0, true, game, 1)
+                held = true
+                task.wait(0.025)
+                vman:SendMouseMoveEvent(fx, py, game)
+                task.wait(0.03)
+                vman:SendMouseButtonEvent(fx, py, 0, false, game, 1)
+                held = false
+            end
+        end)
+
+        if held then
+            releaseAt(fx, py)
+        end
+
+        if not ok then return nil end
+
+        task.wait(touchmode and 0.1 or 0.06)
+        return readslidernumber(label)
+    end
+
+    local success = false
+
     local ok = pcall(function()
-        beginhold(x, y)
-        task.wait(touchmode and 0.025 or 0.018)
+        local originalValue = readslidernumber(label)
 
-        local lastValue = readslidernumber(label)
-        local unchangedMoves = 0
-        local maximumMoves = touchmode and 65 or 80
+        -- First try normal track taps. This cannot drag the settings window.
+        local lowValue = tapTrack(left)
+        local highValue = tapTrack(right)
 
-        for _ = 1, maximumMoves do
-            local value = readslidernumber(label)
+        if lowValue ~= nil and highValue ~= nil and lowValue ~= highValue then
+            local increasingRight = highValue > lowValue
+            local minimumValue = math.min(lowValue, highValue)
+            local maximumValue = math.max(lowValue, highValue)
+            local clampedWanted = math.clamp(wanted, minimumValue, maximumValue)
+
+            local ratio
+            if increasingRight then
+                ratio = (clampedWanted - lowValue) / (highValue - lowValue)
+            else
+                ratio = (lowValue - clampedWanted) / (lowValue - highValue)
+            end
+
+            local targetX = left + math.clamp(ratio, 0, 1) * (right - left)
+            local value = tapTrack(targetX)
+
             if value == wanted then
-                break
+                success = true
+                return
             end
 
-            if value == nil then
-                value = lastValue
+            local lowX = left
+            local highX = right
+
+            for _ = 1, 9 do
+                if value == wanted then
+                    success = true
+                    break
+                end
+
+                local middleX = (lowX + highX) / 2
+                value = tapTrack(middleX)
+                if value == nil then break end
+
+                if value == wanted then
+                    success = true
+                    break
+                end
+
+                if increasingRight then
+                    if value < wanted then
+                        lowX = middleX
+                    else
+                        highX = middleX
+                    end
+                else
+                    if value < wanted then
+                        highX = middleX
+                    else
+                        lowX = middleX
+                    end
+                end
+            end
+        end
+
+        if success then return end
+
+        -- Some libraries only react when the existing fill or thumb is dragged.
+        -- Find its current X from the widest coloured child that starts at the
+        -- left side of the grey track, then perform one controlled drag.
+        local currentX = nil
+        local bestFillWidth = 0
+
+        for _, object in ipairs(track:GetDescendants()) do
+            if object:IsA("GuiObject") then
+                local width = object.AbsoluteSize.X
+                local height = object.AbsoluteSize.Y
+                local sameLine = math.abs(
+                    (object.AbsolutePosition.Y + height / 2) - y
+                ) <= math.max(12, track.AbsoluteSize.Y)
+                local startsNearLeft = math.abs(object.AbsolutePosition.X - track.AbsolutePosition.X) <= 8
+
+                if sameLine
+                    and startsNearLeft
+                    and width > bestFillWidth
+                    and width < track.AbsoluteSize.X - 4
+                    and height >= 2
+                    and height <= track.AbsoluteSize.Y + 8 then
+                    bestFillWidth = width
+                    currentX = object.AbsolutePosition.X + width
+                end
+            end
+        end
+
+        local current = readslidernumber(label) or originalValue
+        if current ~= nil and currentX ~= nil then
+            local stepPixels = (right - left) / 30
+            local estimatedX = currentX + (wanted - current) * stepPixels
+            local value = dragTrack(currentX, estimatedX)
+
+            if value == wanted then
+                success = true
+                return
             end
 
-            if value == nil then
-                break
-            end
-
-            local difference = wanted - value
-            local stepSize
-
-            if math.abs(difference) <= 1 then
-                stepSize = 1
-            elseif math.abs(difference) <= 3 then
-                stepSize = 2
-            else
-                stepSize = 4
-            end
-
-            local nextX = math.clamp(
-                x + (difference > 0 and stepSize or -stepSize),
-                left,
-                right
-            )
-
-            if math.abs(nextX - x) < 0.5 then
-                break
-            end
-
-            x = nextX
-            movehold(x, y)
-            task.wait(touchmode and 0.018 or 0.011)
-
-            local newValue = readslidernumber(label)
-            if newValue == lastValue then
-                unchangedMoves = unchangedMoves + 1
-            else
-                unchangedMoves = 0
-                lastValue = newValue
-            end
-
-            -- A few one-pixel moves may be needed before a rounded value changes.
-            -- Stop safely if this is not the slider instead of moving another GUI row.
-            if unchangedMoves >= 12 then
-                break
+            -- One feedback correction only. No loops and no touch spam.
+            if value ~= nil and value ~= current then
+                local pixelsPerValue = (estimatedX - currentX) / (value - current)
+                if math.abs(pixelsPerValue) >= 0.5 and math.abs(pixelsPerValue) <= 100 then
+                    local correctedX = estimatedX + (wanted - value) * pixelsPerValue
+                    value = dragTrack(estimatedX, correctedX)
+                    success = value == wanted
+                end
             end
         end
     end)
 
-    endhold()
+    releaseAt(right, y)
     restorescroll(scrolling, oldCanvasPosition)
 
-    if not ok then
-        releasemouse(lastInputX, lastInputY)
-        return false
-    end
-
-    task.wait(touchmode and 0.035 or 0.02)
-    return readslidernumber(label) == wanted
+    return ok and success
 end
 
 local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
