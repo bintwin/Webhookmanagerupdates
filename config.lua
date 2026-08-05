@@ -146,6 +146,24 @@ local function getclicktarget(obj)
     return obj
 end
 
+local function isbtnenabled(btn)
+    if not btn then return false end
+    local checkcol = function(c)
+        if not c then return false end
+        local r = math.floor(c.R * 255 + 0.5)
+        local g = math.floor(c.G * 255 + 0.5)
+        local b = math.floor(c.B * 255 + 0.5)
+        return (g == 170 and b == 127) or (g > 150 and b > 100 and r < 50)
+    end
+    if checkcol(btn.BackgroundColor3) then return true end
+    for _, ch in pairs(btn:GetChildren()) do
+        if ch:IsA("Frame") and checkcol(ch.BackgroundColor3) then
+            return true
+        end
+    end
+    return false
+end
+
 local function clickybtn(b)
     b = getclicktarget(b)
     if not b then return end
@@ -510,7 +528,7 @@ if chkdo("Lock On") then
     local lockbtn = getbtnany("Lock On", function()
         return getlblparent("Lock On", function() return guis.ScreenGui.Frame.Frame.ScrollingFrame:GetChildren()[14] end, {"Target", "Main", "Combat"})
     end, {"Target", "Main", "Combat"})
-    if lockbtn then
+    if lockbtn and not isbtnenabled(lockbtn) then
         clickybtn(lockbtn)
         task.wait(0.05)
     end
@@ -556,8 +574,10 @@ if chkdo("Unlock Extra Emote slot") then
     if not emotebtn then
         pcall(function() emotebtn = guis.ScreenGui.Frame.Frame:GetChildren()[7]:GetChildren()[25] end)
     end
-    clickybtn(emotebtn)
-    task.wait(0.05)
+    if emotebtn and not isbtnenabled(emotebtn) then
+        clickybtn(emotebtn)
+        task.wait(0.05)
+    end
 end
 
 if chkdo("M1 Assist") then
@@ -582,24 +602,6 @@ if chkdo("M1 Assist") then
     end
     clickybtn(getbtnany(m1m, function() return nil end))
     task.wait(0.02)
-end
-
-local function isbtnenabled(btn)
-    if not btn then return false end
-    local checkcol = function(c)
-        if not c then return false end
-        local r = math.floor(c.R * 255 + 0.5)
-        local g = math.floor(c.G * 255 + 0.5)
-        local b = math.floor(c.B * 255 + 0.5)
-        return (g == 170 and b == 127) or (g > 150 and b > 100 and r < 50)
-    end
-    if checkcol(btn.BackgroundColor3) then return true end
-    for _, ch in pairs(btn:GetChildren()) do
-        if ch:IsA("Frame") and checkcol(ch.BackgroundColor3) then
-            return true
-        end
-    end
-    return false
 end
 
 opentab("Auto", 5)
