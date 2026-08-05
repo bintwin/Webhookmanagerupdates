@@ -965,32 +965,40 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local vim_y = getvimy(slider, y)
 
+    local vu = game:GetService("VirtualUser")
+
     local function begininput(px)
         if touchmode then
             local touchX, touchY = gettouchcoords(slider, px, vim_y)
-            vman:SendTouchEvent(touchId, 0, touchX, touchY)
+            pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
+            pcall(function() vu:Button1Down(Vector2.new(touchX, touchY)) end)
         else
-            vman:SendMouseMoveEvent(px, vim_y, game)
-            vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1)
+            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+            pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
+            pcall(function() vu:Button1Down(Vector2.new(px, vim_y)) end)
         end
     end
 
-    local function moveinput(px)
+    local function updateinput(px)
         if touchmode then
             local touchX, touchY = gettouchcoords(slider, px, vim_y)
-            vman:SendTouchEvent(touchId, 1, touchX, touchY)
+            pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
+            pcall(function() vu:MoveMouse(Vector2.new(touchX, touchY)) end)
         else
-            vman:SendMouseMoveEvent(px, vim_y, game)
+            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+            pcall(function() vu:MoveMouse(Vector2.new(px, vim_y)) end)
         end
     end
 
     local function endinput(px)
         if touchmode then
             local touchX, touchY = gettouchcoords(slider, px, vim_y)
-            vman:SendTouchEvent(touchId, 2, touchX, touchY)
+            pcall(function() vman:SendTouchEvent(touchId, 2, touchX, touchY) end)
+            pcall(function() vu:Button1Up(Vector2.new(touchX, touchY)) end)
         else
-            vman:SendMouseMoveEvent(px, vim_y, game)
-            vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1)
+            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+            pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
+            pcall(function() vu:Button1Up(Vector2.new(px, vim_y)) end)
         end
     end
 
