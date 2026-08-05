@@ -153,7 +153,7 @@ local function isbtnenabled(btn)
         local r = math.floor(c.R * 255 + 0.5)
         local g = math.floor(c.G * 255 + 0.5)
         local b = math.floor(c.B * 255 + 0.5)
-        return (g == 170 and b == 127) or (g > 150 and b > 100 and r < 50)
+        return (g == 170 and b == 127) or (g > 150 and b > 100 and r < 50) or (r == 0 and g == 170 and b == 127)
     end
     if checkcol(btn.BackgroundColor3) then return true end
     for _, ch in pairs(btn:GetChildren()) do
@@ -184,24 +184,26 @@ local function clickybtn(b)
 
     local worked = false
 
-    if b:IsA("GuiButton") then
-        worked = fireconnections(b.Activated)
-        if not worked then worked = fireconnections(b.MouseButton1Click) end
-    end
+    if touchmode then
+        if b:IsA("GuiButton") then
+            worked = fireconnections(b.Activated)
+            if not worked then worked = fireconnections(b.MouseButton1Click) end
+        end
 
-    if not worked then
-        worked = fireconnections(b.TouchTap)
-    end
+        if not worked then
+            worked = fireconnections(b.TouchTap)
+        end
 
-    if not worked and type(firesignal) == "function" then
-        pcall(function()
-            if b:IsA("GuiButton") then
-                firesignal(b.Activated)
-            else
-                firesignal(b.TouchTap)
-            end
-            worked = true
-        end)
+        if not worked and type(firesignal) == "function" then
+            pcall(function()
+                if b:IsA("GuiButton") then
+                    firesignal(b.Activated)
+                else
+                    firesignal(b.TouchTap)
+                end
+                worked = true
+            end)
+        end
     end
 
     if worked then return end
