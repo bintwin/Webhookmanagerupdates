@@ -1045,44 +1045,53 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     task.wait(0.06)
 
-    local lastValue = readslidernumber(label)
-    local direction = 1
-    local step = math.max(2, math.floor(slider.AbsoluteSize.X / 45))
+    local currentValue = readslidernumber(label)
     local attempts = 0
-    local unchanged = 0
 
-    while attempts < 180 do
+    while attempts < 40 do
         currentValue = readslidernumber(label)
         if currentValue == wantnum or tostring(label.Text) == wanttxt then
             break
         end
 
+        local direction = 1
         if currentValue ~= nil then
             direction = currentValue > wantnum and -1 or 1
         end
 
-        local nextX = math.clamp(x + (step * direction), left, right)
+        local nudge = math.max(2, math.floor(slider.AbsoluteSize.X / 30))
+        local testX = math.clamp(x + (nudge * direction), left, right)
 
-        if nextX == x then
+        if testX == x then
             direction = -direction
-            nextX = math.clamp(x + (step * direction), left, right)
+            testX = math.clamp(x + (nudge * direction), left, right)
         end
 
-        x = nextX
-        pcall(function() moveinput(x) end)
-        task.wait(touchmode and 0.025 or 0.012)
+        pcall(function() updateinput(testX) end)
+        task.wait(0.02)
 
-        local newValue = readslidernumber(label)
-        if newValue == lastValue then
-            unchanged = unchanged + 1
+        local testVal = readslidernumber(label)
+        if testVal == wantnum or tostring(label.Text) == wanttxt then
+            x = testX
+            break
+        end
+
+        if testVal and currentValue and testVal ~= currentValue then
+            local pixelsPerUnit = (testX - x) / (testVal - currentValue)
+            local diff = wantnum - testVal
+            local jumpX = math.floor(testX + (diff * pixelsPerUnit))
+            jumpX = math.clamp(jumpX, left, right)
+
+            pcall(function() updateinput(jumpX) end)
+            task.wait(0.03)
+
+            x = jumpX
+            currentValue = readslidernumber(label)
+            if currentValue == wantnum or tostring(label.Text) == wanttxt then
+                break
+            end
         else
-            unchanged = 0
-            lastValue = newValue
-        end
-
-        if unchanged >= 10 then
-            step = math.min(math.max(step + 1, math.floor(slider.AbsoluteSize.X / 25)), 10)
-            unchanged = 0
+            x = testX
         end
 
         attempts = attempts + 1
