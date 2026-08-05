@@ -262,9 +262,13 @@ local function isguivisible(obj)
     return true
 end
 
+
 local function findcontrolbytext(wanted)
-    for _, obj in pairs(guis:GetDescendants()) do
-        if obj:IsA("TextButton") and isguivisible(obj) then
+    local contentarea = nil
+    pcall(function() contentarea = guis.ScreenGui.Frame.Frame end)
+    if not contentarea then return nil end
+    for _, obj in pairs(contentarea:GetDescendants()) do
+        if obj:IsA("TextButton") then
             if sametext(obj.Text, wanted) then
                 return obj
             end
@@ -275,13 +279,13 @@ local function findcontrolbytext(wanted)
             end
         end
     end
-    for _, obj in pairs(guis:GetDescendants()) do
-        if isguivisible(obj) and sametext(obj.Name, wanted) then
+    for _, obj in pairs(contentarea:GetDescendants()) do
+        if sametext(obj.Name, wanted) then
             if obj:IsA("TextButton") then
                 return obj
             end
             for _, ch in pairs(obj:GetDescendants()) do
-                if ch:IsA("TextButton") and isguivisible(ch) then
+                if ch:IsA("TextButton") then
                     return ch
                 end
             end
@@ -294,8 +298,11 @@ local function findcontrolbytext(wanted)
 end
 
 local function findcontrolbyprefix(wanted)
-    for _, obj in pairs(guis:GetDescendants()) do
-        if obj:IsA("TextButton") and isguivisible(obj) then
+    local contentarea = nil
+    pcall(function() contentarea = guis.ScreenGui.Frame.Frame end)
+    if not contentarea then return nil end
+    for _, obj in pairs(contentarea:GetDescendants()) do
+        if obj:IsA("TextButton") then
             if obj.Text ~= "" and textstartswith(obj.Text, wanted) then
                 return obj
             end
@@ -367,7 +374,7 @@ local function opentab(tname, idxfallback)
 
     if worked then
         currenttab = tname
-        task.wait(0.12)
+        task.wait(0.03)
     end
 
     return worked
@@ -422,73 +429,44 @@ local function withfallback(found, fbackfunc)
     return fallback
 end
 
+
+local function switchtab4obj(obj)
+    local contentarea = nil
+    pcall(function() contentarea = guis.ScreenGui.Frame.Frame end)
+    if not contentarea then return end
+    local tabscroll = obj
+    while tabscroll and tabscroll ~= game and tabscroll.Parent ~= contentarea do
+        tabscroll = tabscroll.Parent
+    end
+    if tabscroll and tabscroll:IsA("ScrollingFrame") and tabscroll.Parent == contentarea then
+        local sfIdx = 0
+        for i, ch in ipairs(contentarea:GetChildren()) do
+            if ch == tabscroll then sfIdx = i break end
+        end
+        if sfIdx >= 2 and sfIdx <= #alltabs + 1 then
+            local wantedTab = alltabs[sfIdx - 1]
+            if currenttab ~= wantedTab then
+                opentab(wantedTab)
+            end
+        end
+    end
+end
+
 local function findcontrolalltabs(wanted, fbackfunc, preferredtabs)
     local found = findcontrolbytext(wanted)
-    if found then return found end
-
-    local tried = {}
-    local hints = preferredtabs or gettabhints(wanted)
-
-    local function trytab(tabname)
-        if not tabname or tried[tabname] then return nil end
-        tried[tabname] = true
-
-        if currenttab ~= tabname then
-            opentab(tabname, tabfallbacks[tabname])
-        end
-
-        return findcontrolbytext(wanted)
+    if found then
+        switchtab4obj(found)
+        return found
     end
-
-    for _, tabname in pairs(hints) do
-        found = trytab(tabname)
-        if found then return found end
-    end
-
-    for _, tabname in pairs(alltabs) do
-        found = trytab(tabname)
-        if found then return found end
-    end
-
-    if hints[1] and currenttab ~= hints[1] then
-        opentab(hints[1], tabfallbacks[hints[1]])
-    end
-
     return withfallback(nil, fbackfunc)
 end
 
 local function findprefixalltabs(wanted, fbackfunc, preferredtabs)
     local found = findcontrolbyprefix(wanted)
-    if found then return found end
-
-    local tried = {}
-    local hints = preferredtabs or gettabhints(wanted)
-
-    local function trytab(tabname)
-        if not tabname or tried[tabname] then return nil end
-        tried[tabname] = true
-
-        if currenttab ~= tabname then
-            opentab(tabname, tabfallbacks[tabname])
-        end
-
-        return findcontrolbyprefix(wanted)
+    if found then
+        switchtab4obj(found)
+        return found
     end
-
-    for _, tabname in pairs(hints) do
-        found = trytab(tabname)
-        if found then return found end
-    end
-
-    for _, tabname in pairs(alltabs) do
-        found = trytab(tabname)
-        if found then return found end
-    end
-
-    if hints[1] and currenttab ~= hints[1] then
-        opentab(hints[1], tabfallbacks[hints[1]])
-    end
-
     return withfallback(nil, fbackfunc)
 end
 
@@ -814,14 +792,21 @@ local function findsliderlabel(prefix)
     local contentarea = nil
     pcall(function() contentarea = guis.ScreenGui.Frame.Frame end)
     if not contentarea then return nil end
-    for _, obj in pairs(contentarea:GetDescendants()) do
-        if obj:IsA("TextLabel") then
-            local text = normalizetext(obj.Text)
-            if text == wanted
-                or string.sub(text, 1, #wanted + 1) == wanted .. ":"
-                or string.sub(text, 1, #wanted + 1) == wanted .. " " then
-                if obj.Parent and obj.Parent:IsA("Frame") then
-                    return obj
+    
+    for _, tab in ipairs(contentarea:GetChildren()) do
+        if tab:IsA("ScrollingFrame") then
+            for _, container in ipairs(tab:GetChildren()) do
+                if container:IsA("Frame") then
+                    for _, child in ipairs(container:GetChildren()) do
+                        if child:IsA("TextLabel") then
+                            local text = normalizetext(child.Text)
+                            if text == wanted
+                                or string.sub(text, 1, #wanted + 1) == wanted .. ":"
+                                or string.sub(text, 1, #wanted + 1) == wanted .. " " then
+                                return child
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -835,9 +820,9 @@ local function getslidertrackfromlabel(label, fallbackfunc)
         pcall(function() fb = fallbackfunc and fallbackfunc() end)
         return fb
     end
-    local prnt = label.Parent
-    if prnt:IsA("Frame") then
-        for _, sib in pairs(prnt:GetChildren()) do
+    local container = label.Parent
+    if container:IsA("Frame") then
+        for _, sib in pairs(container:GetChildren()) do
             if sib:IsA("Frame") and sib ~= label then
                 return sib
             end
@@ -850,40 +835,19 @@ end
 
 local fastslider
 
+
 local function fastsliderbylabel(prefix, fallbacksliderfunc, fallbacklabelfunc, wantnum)
     local label = findsliderlabel(prefix)
-
     if label then
-        local tabscroll = label.Parent
-        while tabscroll and tabscroll ~= game do
-            if tabscroll:IsA("ScrollingFrame") then
-                break
-            end
-            tabscroll = tabscroll.Parent
-        end
-        if tabscroll and tabscroll:IsA("ScrollingFrame") and not tabscroll.Visible then
-            pcall(function()
-                for _, sib in pairs(tabscroll.Parent:GetChildren()) do
-                    if sib:IsA("ScrollingFrame") then
-                        sib.Visible = (sib == tabscroll)
-                    end
-                end
-            end)
-            task.wait(0.1)
-        end
+        switchtab4obj(label)
     end
-
     if not label then
         pcall(function()
-            if fallbacklabelfunc then
-                label = fallbacklabelfunc()
-            end
+            if fallbacklabelfunc then label = fallbacklabelfunc() end
         end)
     end
-
     local slider = getslidertrackfromlabel(label, fallbacksliderfunc)
     local wantedText = tostring(prefix) .. ": " .. tostring(wantnum)
-
     fastslider(
         function() return slider end,
         function() return label end,
@@ -920,9 +884,11 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     if not scrolling then
         pcall(function()
-            local possible = guis.ScreenGui.Frame.Frame:GetChildren()[4]
-            if possible:IsA("ScrollingFrame") then
-                scrolling = possible
+            for _, ch in pairs(guis.ScreenGui.Frame.Frame:GetChildren()) do
+                if ch:IsA("ScrollingFrame") and ch.Visible then
+                    scrolling = ch
+                    break
+                end
             end
         end)
     end
