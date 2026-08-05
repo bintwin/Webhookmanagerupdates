@@ -977,11 +977,9 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function begininput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
-        if touchmode then
-            pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
-            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-            pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
-        end
+        pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
+        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+        pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
         pcall(function() vu:Button1Down(Vector2.new(px, vim_y)) end)
         
         firesig(slider, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, vim_y)
@@ -994,10 +992,8 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function updateinput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
-        if touchmode then
-            pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
-            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-        end
+        pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
+        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
         pcall(function() vu:MoveMouse(Vector2.new(px, vim_y)) end)
         
         firesig(slider, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, vim_y)
@@ -1010,11 +1006,9 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function endinput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
-        if touchmode then
-            pcall(function() vman:SendTouchEvent(touchId, 2, touchX, touchY) end)
-            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-            pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
-        end
+        pcall(function() vman:SendTouchEvent(touchId, 2, touchX, touchY) end)
+        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+        pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
         pcall(function() vu:Button1Up(Vector2.new(px, vim_y)) end)
         
         firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, vim_y)
