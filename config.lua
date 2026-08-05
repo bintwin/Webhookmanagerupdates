@@ -217,6 +217,8 @@ local function clickybtn(b)
     if x and y then
         pcall(function()
             game:GetService("VirtualUser"):ClickButton1(Vector2.new(x, y))
+            game:GetService("VirtualUser"):MoveMouse(Vector2.new(0, 0))
+            if vman then vman:SendMouseMoveEvent(0, 0, game) end
         end)
     end
 end
@@ -566,18 +568,8 @@ if chkdo("Unlock Extra Emote slot") then
 end
 
 if chkdo("M1 Assist") then
-    local m1btn = findcontrolalltabs("M1 Assist", nil, {"Combat", "Auto"})
-        or findcontrolalltabs("M1 Assist Only", nil, {"Combat", "Auto"})
-
-    if not m1btn then
-        pcall(function()
-            if premium_mode then
-                m1btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[22]
-            else
-                m1btn = guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[17]
-            end
-        end)
-    end
+    local m1btn = findcontrolalltabs("M1 Assist", nil, {"Combat", "Auto", "Misc", "Main"})
+        or findcontrolalltabs("M1 Assist Only", nil, {"Combat", "Auto", "Misc", "Main"})
 
     clickybtn(m1btn)
     task.wait(0.02)
@@ -1007,6 +999,9 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
         pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
         pcall(function() vman:SendMouseButtonEvent(px, y, 0, false, game, 1) end)
         pcall(function() vu:Button1Up(Vector2.new(px, y)) end)
+        
+        pcall(function() vman:SendMouseMoveEvent(0, 0, game) end)
+        pcall(function() vu:MoveMouse(Vector2.new(0, 0)) end)
         
         firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, y)
         firesig(slider, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, y)
