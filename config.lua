@@ -1409,68 +1409,91 @@ end
 local function findslidertrack(root, label)
     if not root or not label then return nil end
 
-    local labelCenterY = label.AbsolutePosition.Y + (label.AbsoluteSize.Y / 2)
-    local scope = getcommonancestor(root, label) or root
-    local candidates = {root}
-
-    for _, object in pairs(root:GetDescendants()) do
-        table.insert(candidates, object)
-    end
-
-    if scope ~= root and scope:IsA("GuiObject") then
-        for _, object in pairs(scope:GetDescendants()) do
-            if object:IsA("GuiObject") then
-                local centerY = object.AbsolutePosition.Y + (object.AbsoluteSize.Y / 2)
-                if math.abs(centerY - labelCenterY) <= 90 then
-                    table.insert(candidates, object)
-                end
-            end
-        end
-    end
-
+    local labelBottom = label.AbsolutePosition.Y + label.AbsoluteSize.Y
+    local maxBelow = math.max(70, label.AbsoluteSize.Y * 5)
     local best = nil
     local bestScore = -math.huge
     local checked = {}
 
-    for _, object in pairs(candidates) do
-        if not checked[object] then
-            checked[object] = true
+    local scopes = {
+        root,
+        root.Parent,
+        label.Parent,
+        label.Parent and label.Parent.Parent,
+        getcommonancestor(root, label)
+    }
 
-            if istrackshape(object) then
-                local width = object.AbsoluteSize.X
-                local height = object.AbsoluteSize.Y
-                local centerY = object.AbsolutePosition.Y + (height / 2)
-                local distanceY = math.abs(centerY - labelCenterY)
-                local score = 0
+    local function hasvisibletext(object)
+        if object:IsA("TextButton") and normalizetext(object.Text) ~= "" then
+            return true
+        end
 
-                if object == root then score = score + 40 end
-                if object:IsA("GuiButton") then score = score + 15 end
-                if hasnametoken(object, "slider") then score = score + 150 end
-                if hasnametoken(object, "track") then score = score + 120 end
-                if hasnametoken(object, "bar") then score = score + 75 end
-                if hasnametoken(object, "fill") then score = score - 60 end
-
-                if height <= 14 then score = score + 45 end
-                if centerY >= labelCenterY - 8 then score = score + 45 end
-                score = score + math.min(width, 260) * 0.35
-                score = score - distanceY * 2.5
-
-                local textFound = false
-                if object:IsA("TextButton") and normalizetext(object.Text) ~= "" then
-                    textFound = true
-                end
-                if textFound then score = score - 300 end
-
-                if score > bestScore then
-                    best = object
-                    bestScore = score
-                end
+        for _, child in pairs(object:GetDescendants()) do
+            if (child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox"))
+                and normalizetext(child.Text) ~= "" then
+                return true
             end
+        end
+
+        return false
+    end
+
+    local function check(object)
+        if checked[object] or not object:IsA("GuiObject") then return end
+        checked[object] = true
+
+        if object:IsA("TextLabel") or object:IsA("TextBox") or object:IsA("ScrollingFrame") then
+            return
+        end
+
+        local width = object.AbsoluteSize.X
+        local height = object.AbsoluteSize.Y
+        if width < 45 or height < 2 or height > 24 or width < height * 4 then
+            return
+        end
+
+        local centerY = object.AbsolutePosition.Y + height / 2
+        local belowDistance = centerY - labelBottom
+
+        -- A slider track must be on the same row and below its value label.
+        -- This blocks the toggle or button above the slider from being selected.
+        if belowDistance < -3 or belowDistance > maxBelow then
+            return
+        end
+
+        local score = width * 0.9 - belowDistance * 3
+
+        if object == root then score = score + 110 end
+        if root:IsDescendantOf(object) then score = score + 170 end
+        if object:IsDescendantOf(root) then score = score + 130 end
+        if object.Parent == root.Parent then score = score + 45 end
+
+        if hasnametoken(object, "slider") then score = score + 220 end
+        if hasnametoken(object, "track") then score = score + 190 end
+        if hasnametoken(object, "bar") then score = score + 90 end
+        if hasnametoken(object, "fill") or hasnametoken(object, "progress") then
+            score = score - 170
+        end
+
+        if height <= 12 then score = score + 70 end
+        if hasvisibletext(object) then score = score - 500 end
+
+        if score > bestScore then
+            best = object
+            bestScore = score
         end
     end
 
-    if bestScore < 15 then
-        return nil
+    for _, scope in pairs(scopes) do
+        if scope and scope ~= game then
+            if scope:IsA("GuiObject") then
+                check(scope)
+            end
+
+            for _, object in pairs(scope:GetDescendants()) do
+                check(object)
+            end
+        end
     end
 
     return best
@@ -1769,14 +1792,16 @@ end
 local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
     if type(wanted) ~= "number" then return end
 
-    local root = getsafeobject(rootfunc)
+    local suppliedRoot = getsafeobject(rootfunc)
     local label = findsliderlabel(prefix, labelfunc)
 
-    if not root or not label then
+    if not suppliedRoot or not label then
         return
     end
 
-    local track = findslidertrack(root, label)
+    -- The supplied path identifies the correct slider row.
+    -- Only search inside that row for the real horizontal track.
+    local track = findslidertrack(suppliedRoot, label)
     if not track then
         return
     end
@@ -1789,71 +1814,124 @@ local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
             return
         end
 
-        local knob = findsliderknob(track, root)
-        local minimum, maximum = getsliderrange(prefix, root, track)
+        local left = track.AbsolutePosition.X + 3
+        local right = track.AbsolutePosition.X + track.AbsoluteSize.X - 3
+        local y = track.AbsolutePosition.Y + track.AbsoluteSize.Y / 2
 
-        if maximum <= minimum then
+        if right - left < 20 then
             return
         end
 
-        local knobRadius = knob and math.max(2, knob.AbsoluteSize.X / 2) or 3
-        local left = track.AbsolutePosition.X + knobRadius
-        local right = track.AbsolutePosition.X + track.AbsoluteSize.X - knobRadius
-        local y = track.AbsolutePosition.Y + (track.AbsoluteSize.Y / 2)
+        local lowX = left
+        local highX = right
+        local currentX = nil
+        local knob = findsliderknob(track, track.Parent)
 
-        if right <= left then
-            return
+        if knob then
+            currentX = knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2
         end
 
-        local usableWidth = right - left
-        local wantedRatio = math.clamp((wanted - minimum) / (maximum - minimum), 0, 1)
-        local targetX = left + (usableWidth * wantedRatio)
-        local currentRatio = currentValue and math.clamp((currentValue - minimum) / (maximum - minimum), 0, 1) or 0.5
-        local startX = knob and (knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2)
-            or (left + usableWidth * currentRatio)
+        currentX = math.clamp(currentX or ((left + right) / 2), left, right)
 
-        local bestDistance = currentValue and math.abs(currentValue - wanted) or math.huge
-        local lastValue = currentValue
-        local lastX = startX
+        local bestValue = currentValue
+        local bestX = currentX
+        local bestDistance = currentValue ~= nil and math.abs(currentValue - wanted) or math.huge
+        local increasingRight = nil
+        local unchangedCount = 0
 
-        for _ = 1, 3 do
-            targetX = math.clamp(targetX, left, right)
-
-            if math.abs(targetX - lastX) < 1 then
-                targetX = math.clamp(targetX + (wanted > (lastValue or wanted) and 1 or -1), left, right)
-            end
-
-            local dragged = dragslideronce(track, lastX, y, targetX, y)
-            if not dragged then
+        -- Coordinate binary search does not need guessed minimum or maximum values.
+        -- It reads the real number after every controlled move.
+        for attempt = 1, 7 do
+            if currentValue == wanted or highX - lowX < 0.75 then
                 break
             end
 
-            local value = waitforvaluechange(label, lastValue, touchmode and 0.16 or 0.10)
-            if value == nil then
+            local targetX = (lowX + highX) / 2
+
+            if math.abs(targetX - currentX) < 2 then
+                local nudge = math.max(3, (right - left) * 0.08)
+                if currentValue == nil or wanted > currentValue then
+                    targetX = math.min(right, targetX + nudge)
+                else
+                    targetX = math.max(left, targetX - nudge)
+                end
+            end
+
+            local previousX = currentX
+            local previousValue = currentValue
+            local liveKnob = findsliderknob(track, track.Parent)
+            local startX = liveKnob
+                and (liveKnob.AbsolutePosition.X + liveKnob.AbsoluteSize.X / 2)
+                or currentX
+
+            if not dragslideronce(track, startX, y, targetX, y) then
                 break
             end
 
-            local distance = math.abs(value - wanted)
+            local newValue = waitforvaluechange(
+                label,
+                previousValue,
+                touchmode and 0.14 or 0.09
+            )
+
+            if newValue == nil then
+                break
+            end
+
+            currentX = targetX
+            currentValue = newValue
+
+            local distance = math.abs(newValue - wanted)
             if distance < bestDistance then
                 bestDistance = distance
-            elseif value == lastValue then
+                bestValue = newValue
+                bestX = targetX
+            end
+
+            if newValue == wanted then
                 break
             end
 
-            if value == wanted then
+            if previousValue ~= nil and newValue ~= previousValue and math.abs(targetX - previousX) >= 1 then
+                increasingRight = ((targetX - previousX) * (newValue - previousValue)) > 0
+                unchangedCount = 0
+            else
+                unchangedCount = unchangedCount + 1
+            end
+
+            local movesRightToIncrease = increasingRight ~= false
+
+            if newValue < wanted then
+                if movesRightToIncrease then
+                    lowX = math.max(lowX, targetX + 0.5)
+                else
+                    highX = math.min(highX, targetX - 0.5)
+                end
+            else
+                if movesRightToIncrease then
+                    highX = math.min(highX, targetX - 0.5)
+                else
+                    lowX = math.max(lowX, targetX + 0.5)
+                end
+            end
+
+            -- Stop instead of fighting one rounded value forever.
+            if unchangedCount >= 2 then
                 break
             end
+        end
 
-            local pixelsPerValue = usableWidth / (maximum - minimum)
-            local correction = (wanted - value) * pixelsPerValue
+        -- Put it back on the closest confirmed coordinate only when the last
+        -- move was worse. This is one final move at most.
+        if bestX and currentValue ~= wanted and bestValue ~= currentValue
+            and math.abs(bestX - currentX) >= 1 then
+            local liveKnob = findsliderknob(track, track.Parent)
+            local startX = liveKnob
+                and (liveKnob.AbsolutePosition.X + liveKnob.AbsoluteSize.X / 2)
+                or currentX
 
-            if math.abs(correction) < 1 then
-                correction = wanted > value and 1 or -1
-            end
-
-            lastValue = value
-            lastX = targetX
-            targetX = targetX + correction
+            dragslideronce(track, startX, y, bestX, y)
+            task.wait(touchmode and 0.035 or 0.02)
         end
     end)
 
