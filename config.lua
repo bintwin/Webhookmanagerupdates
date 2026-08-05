@@ -821,20 +821,6 @@ local function opentab(tname, idxfallback)
 
     local worked = false
     local tabbutton = findtabbutton(tname)
-    local rootframe = nil
-    local oldrootvisible = nil
-
-    -- Hide the menu for the tiny amount of time a required tab is opened.
-    -- This prevents visible tab flashing while still allowing signal clicks.
-    if silent_tab_scan and directsignalsavailable then
-        pcall(function()
-            rootframe = guis.ScreenGui.Frame
-            if rootframe and rootframe:IsA("GuiObject") then
-                oldrootvisible = rootframe.Visible
-                rootframe.Visible = false
-            end
-        end)
-    end
 
     if tabbutton then
         clickybtn(tabbutton)
@@ -856,16 +842,7 @@ local function opentab(tname, idxfallback)
         globalindex = nil
         textsearchcache = {}
         prefixsearchcache = {}
-        task.wait(silent_tab_scan and 0.025 or 0.07)
-    end
-
-    if rootframe and oldrootvisible ~= nil then
-        pcall(function()
-            rootframe.Visible = oldrootvisible
-        end)
-    end
-
-    if worked then
+        task.wait(0.03)
         buildtabindex(tname)
     end
 
@@ -1348,18 +1325,18 @@ local function findsliderlabel(prefix, fallbackfunc)
     local bestScore = -math.huge
 
     for _, obj in pairs(guis:GetDescendants()) do
-        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
-            local text = normalizetext(obj.Text)
-            local matches = text == wanted
-                or string.sub(text, 1, #wanted + 1) == wanted .. ":"
-                or string.sub(text, 1, #wanted + 1) == wanted .. " "
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local textvalue = normalizetext(obj.Text)
+            local matches = textvalue == wanted
+                or string.sub(textvalue, 1, #wanted + 1) == wanted .. ":"
+                or string.sub(textvalue, 1, #wanted + 1) == wanted .. " "
 
             if matches and readslidernumber(obj) ~= nil then
                 local score = 0
 
                 if isguivisible(obj) then score = score + 100 end
                 if obj:IsA("TextLabel") then score = score + 20 end
-                if string.find(text, ":", 1, true) then score = score + 20 end
+                if string.find(textvalue, ":", 1, true) then score = score + 20 end
 
                 if score > bestScore then
                     best = obj
@@ -1372,40 +1349,289 @@ local function findsliderlabel(prefix, fallbackfunc)
     return best
 end
 
-local function getexactslider(fallbackfunc)
-    local slider = nil
+local function getsafeobject(fallbackfunc)
+    local object = nil
 
     pcall(function()
         if fallbackfunc then
-            slider = fallbackfunc()
+            object = fallbackfunc()
         end
     end)
 
-    if slider and slider:IsA("GuiObject") and slider.AbsoluteSize.X >= 20 then
-        return slider
+    if object and object:IsA("GuiObject") and object.Parent then
+        return object
     end
 
     return nil
 end
 
-local function scrollslidertoview(slider)
-    if not slider or not slider:IsA("GuiObject") then return end
+local function getcommonancestor(first, second)
+    if not first or not second then return nil end
 
-    local scrolling = nil
-    local current = slider.Parent
+    local seen = {}
+    local current = first
 
     while current and current ~= game do
-        if current:IsA("ScrollingFrame") then
-            scrolling = current
-            break
+        seen[current] = true
+        current = current.Parent
+    end
+
+    current = second
+    while current and current ~= game do
+        if seen[current] then
+            return current
         end
         current = current.Parent
     end
 
-    if not scrolling then return end
+    return nil
+end
+
+local function hasnametoken(object, token)
+    return string.find(string.lower(tostring(object.Name)), token, 1, true) ~= nil
+end
+
+local function istrackshape(object)
+    if not object or not object:IsA("GuiObject") then return false end
+    if object:IsA("TextLabel") or object:IsA("TextBox") or object:IsA("ScrollingFrame") then
+        return false
+    end
+
+    local width = object.AbsoluteSize.X
+    local height = object.AbsoluteSize.Y
+
+    return width >= 35
+        and height >= 2
+        and height <= 30
+        and width >= height * 3
+end
+
+local function findslidertrack(root, label)
+    if not root or not label then return nil end
+
+    local labelCenterY = label.AbsolutePosition.Y + (label.AbsoluteSize.Y / 2)
+    local scope = getcommonancestor(root, label) or root
+    local candidates = {root}
+
+    for _, object in pairs(root:GetDescendants()) do
+        table.insert(candidates, object)
+    end
+
+    if scope ~= root and scope:IsA("GuiObject") then
+        for _, object in pairs(scope:GetDescendants()) do
+            if object:IsA("GuiObject") then
+                local centerY = object.AbsolutePosition.Y + (object.AbsoluteSize.Y / 2)
+                if math.abs(centerY - labelCenterY) <= 90 then
+                    table.insert(candidates, object)
+                end
+            end
+        end
+    end
+
+    local best = nil
+    local bestScore = -math.huge
+    local checked = {}
+
+    for _, object in pairs(candidates) do
+        if not checked[object] then
+            checked[object] = true
+
+            if istrackshape(object) then
+                local width = object.AbsoluteSize.X
+                local height = object.AbsoluteSize.Y
+                local centerY = object.AbsolutePosition.Y + (height / 2)
+                local distanceY = math.abs(centerY - labelCenterY)
+                local score = 0
+
+                if object == root then score = score + 40 end
+                if object:IsA("GuiButton") then score = score + 15 end
+                if hasnametoken(object, "slider") then score = score + 150 end
+                if hasnametoken(object, "track") then score = score + 120 end
+                if hasnametoken(object, "bar") then score = score + 75 end
+                if hasnametoken(object, "fill") then score = score - 60 end
+
+                if height <= 14 then score = score + 45 end
+                if centerY >= labelCenterY - 8 then score = score + 45 end
+                score = score + math.min(width, 260) * 0.35
+                score = score - distanceY * 2.5
+
+                local textFound = false
+                if object:IsA("TextButton") and normalizetext(object.Text) ~= "" then
+                    textFound = true
+                end
+                if textFound then score = score - 300 end
+
+                if score > bestScore then
+                    best = object
+                    bestScore = score
+                end
+            end
+        end
+    end
+
+    if bestScore < 15 then
+        return nil
+    end
+
+    return best
+end
+
+local function findsliderknob(track, root)
+    if not track then return nil end
+
+    local trackLeft = track.AbsolutePosition.X
+    local trackRight = trackLeft + track.AbsoluteSize.X
+    local trackCenterY = track.AbsolutePosition.Y + (track.AbsoluteSize.Y / 2)
+    local scope = root or track
+    local best = nil
+    local bestScore = -math.huge
+
+    local objects = {}
+    for _, object in pairs(track:GetDescendants()) do
+        table.insert(objects, object)
+    end
+    if scope ~= track then
+        for _, object in pairs(scope:GetDescendants()) do
+            table.insert(objects, object)
+        end
+    end
+
+    local checked = {}
+    for _, object in pairs(objects) do
+        if not checked[object] and object:IsA("GuiObject") then
+            checked[object] = true
+
+            local width = object.AbsoluteSize.X
+            local height = object.AbsoluteSize.Y
+            local centerX = object.AbsolutePosition.X + (width / 2)
+            local centerY = object.AbsolutePosition.Y + (height / 2)
+
+            if width >= 5 and width <= 34
+                and height >= 5 and height <= 34
+                and centerX >= trackLeft - 8
+                and centerX <= trackRight + 8
+                and math.abs(centerY - trackCenterY) <= 18 then
+
+                local score = 0
+                if hasnametoken(object, "knob") then score = score + 180 end
+                if hasnametoken(object, "thumb") then score = score + 180 end
+                if hasnametoken(object, "handle") then score = score + 120 end
+                if hasnametoken(object, "circle") then score = score + 80 end
+                if object:IsA("ImageButton") then score = score + 40 end
+                if object:IsA("ImageLabel") then score = score + 20 end
+                score = score - math.abs(width - height) * 2
+                score = score - math.abs(centerY - trackCenterY) * 3
+
+                if score > bestScore then
+                    best = object
+                    bestScore = score
+                end
+            end
+        end
+    end
+
+    if bestScore < -20 then
+        return nil
+    end
+
+    return best
+end
+
+local function readnumericmetadata(objects, names)
+    for _, object in pairs(objects) do
+        if object then
+            for _, name in pairs(names) do
+                local value = nil
+
+                pcall(function()
+                    value = object:GetAttribute(name)
+                end)
+
+                if type(value) == "number" then
+                    return value
+                end
+
+                local child = object:FindFirstChild(name, true)
+                if child and (child:IsA("NumberValue") or child:IsA("IntValue")) then
+                    return child.Value
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getsliderrange(prefix, root, track)
+    local objects = {track, root}
+    local current = root and root.Parent
+    local depth = 0
+
+    while current and current ~= game and depth < 4 do
+        table.insert(objects, current)
+        current = current.Parent
+        depth = depth + 1
+    end
+
+    local minimum = readnumericmetadata(objects, {
+        "Min", "Minimum", "MinValue", "MinimumValue", "LowerBound"
+    })
+    local maximum = readnumericmetadata(objects, {
+        "Max", "Maximum", "MaxValue", "MaximumValue", "UpperBound"
+    })
+
+    if type(minimum) == "number" and type(maximum) == "number" and maximum > minimum then
+        return minimum, maximum
+    end
+
+    local fallbacks = {
+        ["Auto Block Range"] = {0, 20},
+        ["Auto Counter Range"] = {0, 20},
+        ["Click Delay"] = {0, 20}
+    }
+
+    local fallback = fallbacks[prefix]
+    if fallback then
+        return fallback[1], fallback[2]
+    end
+
+    return 0, 20
+end
+
+local function findscrollingancestor(object)
+    local current = object and object.Parent
+
+    while current and current ~= game do
+        if current:IsA("ScrollingFrame") then
+            return current
+        end
+        current = current.Parent
+    end
+
+    return nil
+end
+
+local function isinsideviewport(object, scrolling)
+    if not object or not scrolling then return true end
+
+    local objectTop = object.AbsolutePosition.Y
+    local objectBottom = objectTop + object.AbsoluteSize.Y
+    local windowTop = scrolling.AbsolutePosition.Y
+    local windowBottom = windowTop + scrolling.AbsoluteWindowSize.Y
+
+    return objectBottom >= windowTop + 3 and objectTop <= windowBottom - 3
+end
+
+local function bringintoviewtemporarily(object)
+    local scrolling = findscrollingancestor(object)
+    if not scrolling or isinsideviewport(object, scrolling) then
+        return nil, nil
+    end
+
+    local oldPosition = scrolling.CanvasPosition
 
     pcall(function()
-        local targetY = slider.AbsolutePosition.Y
+        local targetY = object.AbsolutePosition.Y
             - scrolling.AbsolutePosition.Y
             + scrolling.CanvasPosition.Y
             - (scrolling.AbsoluteWindowSize.Y / 2)
@@ -1416,41 +1642,44 @@ local function scrollslidertoview(slider)
         )
 
         scrolling.CanvasPosition = Vector2.new(
-            scrolling.CanvasPosition.X,
+            oldPosition.X,
             math.clamp(targetY, 0, maxY)
         )
     end)
 
-    task.wait(touchmode and 0.06 or 0.03)
+    task.wait(touchmode and 0.055 or 0.03)
+    return scrolling, oldPosition
 end
 
-local function waitforvalue(label, timeout)
+local function restorescroll(scrolling, oldPosition)
+    if not scrolling or not oldPosition then return end
+
+    pcall(function()
+        scrolling.CanvasPosition = oldPosition
+    end)
+end
+
+local function waitforvaluechange(label, oldValue, timeout)
     local deadline = os.clock() + timeout
-    local lastValue = readslidernumber(label)
-    local stableValue = lastValue
-    local stableSince = os.clock()
+    local newest = oldValue
 
     while os.clock() < deadline do
         task.wait(touchmode and 0.018 or 0.01)
-
         local value = readslidernumber(label)
 
         if value ~= nil then
-            if value ~= stableValue then
-                stableValue = value
-                stableSince = os.clock()
-            elseif os.clock() - stableSince >= 0.035 then
-                return value
+            newest = value
+            if oldValue == nil or value ~= oldValue then
+                task.wait(touchmode and 0.025 or 0.015)
+                return readslidernumber(label) or value
             end
-
-            lastValue = value
         end
     end
 
-    return lastValue
+    return newest
 end
 
-local function releaseallsliderinput(x, y)
+local function releasemouse(x, y)
     pcall(function()
         if type(mouse1release) == "function" then
             mouse1release()
@@ -1462,206 +1691,176 @@ local function releaseallsliderinput(x, y)
     end)
 end
 
-local function setsliderpoint(slider, x)
-    if not slider or not slider:IsA("GuiObject") then return false end
+local function dragslideronce(guiObject, startX, startY, finishX, finishY)
+    if not guiObject then return false end
 
-    local left = math.floor(slider.AbsolutePosition.X + 2)
-    local right = math.floor(slider.AbsolutePosition.X + slider.AbsoluteSize.X - 2)
-    local y = math.floor(slider.AbsolutePosition.Y + (slider.AbsoluteSize.Y / 2))
+    startX = math.floor(startX + 0.5)
+    startY = math.floor(startY + 0.5)
+    finishX = math.floor(finishX + 0.5)
+    finishY = math.floor(finishY + 0.5)
 
-    if right <= left then return false end
+    if touchmode then
+        local touchStartX, touchStartY = gettouchcoords(guiObject, startX, startY)
+        local touchFinishX, touchFinishY = gettouchcoords(guiObject, finishX, finishY)
+        local begun = false
 
-    x = math.clamp(math.floor(x + 0.5), left, right)
+        local ok = pcall(function()
+            vman:SendTouchEvent(0, 0, touchStartX, touchStartY)
+            begun = true
+            task.wait(0.025)
+            vman:SendTouchEvent(0, 1, touchFinishX, touchFinishY)
+            task.wait(0.025)
+            vman:SendTouchEvent(0, 2, touchFinishX, touchFinishY)
+            begun = false
+        end)
 
-    local nudge = x < right and 1 or -1
-    local usedExecutorMouse = false
+        if begun then
+            pcall(function()
+                vman:SendTouchEvent(0, 2, touchFinishX, touchFinishY)
+            end)
+        end
+
+        return ok
+    end
 
     if type(mousemoveabs) == "function"
         and type(mouse1press) == "function"
         and type(mouse1release) == "function" then
 
+        local pressed = false
         local ok = pcall(function()
-            mousemoveabs(x, y)
-            task.wait(0.012)
+            mousemoveabs(startX, startY)
+            task.wait(0.015)
             mouse1press()
-            task.wait(0.018)
-            mousemoveabs(x + nudge, y)
-            task.wait(0.018)
-            mousemoveabs(x, y)
-            task.wait(0.012)
+            pressed = true
+            task.wait(0.02)
+            mousemoveabs(finishX, finishY)
+            task.wait(0.025)
             mouse1release()
+            pressed = false
         end)
 
-        usedExecutorMouse = ok
-    end
-
-    if not usedExecutorMouse then
-        local pressed = pcall(function()
-            vman:SendMouseMoveEvent(x, y, game)
-            vman:SendMouseButtonEvent(x, y, 0, true, game, 1)
-        end)
-
-        if not pressed then
-            releaseallsliderinput(x, y)
-            return false
+        if pressed then
+            pcall(mouse1release)
         end
 
-        task.wait(0.018)
-
-        pcall(function()
-            vman:SendMouseMoveEvent(x + nudge, y, game)
-        end)
-
-        task.wait(0.018)
-
-        pcall(function()
-            vman:SendMouseMoveEvent(x, y, game)
-        end)
-
-        task.wait(0.012)
-        releaseallsliderinput(x, y)
+        return ok
     end
 
-    task.wait(touchmode and 0.04 or 0.025)
-    return true
+    local pressed = false
+    local ok = pcall(function()
+        vman:SendMouseMoveEvent(startX, startY, game)
+        vman:SendMouseButtonEvent(startX, startY, 0, true, game, 1)
+        pressed = true
+        task.wait(0.02)
+        vman:SendMouseMoveEvent(finishX, finishY, game)
+        task.wait(0.025)
+        vman:SendMouseButtonEvent(finishX, finishY, 0, false, game, 1)
+        pressed = false
+    end)
+
+    if pressed then
+        releasemouse(finishX, finishY)
+    end
+
+    return ok
 end
 
-local function setsliderexact(prefix, sliderfunc, labelfunc, wanted)
+local function setsliderdirect(prefix, rootfunc, labelfunc, wanted)
     if type(wanted) ~= "number" then return end
 
-    local slider = getexactslider(sliderfunc)
+    local root = getsafeobject(rootfunc)
     local label = findsliderlabel(prefix, labelfunc)
 
-    if not slider or not label then
+    if not root or not label then
         return
     end
 
-    scrollslidertoview(slider)
-
-    local current = readslidernumber(label)
-    if current == wanted then
+    local track = findslidertrack(root, label)
+    if not track then
         return
     end
 
-    local left = math.floor(slider.AbsolutePosition.X + 3)
-    local right = math.floor(slider.AbsolutePosition.X + slider.AbsoluteSize.X - 3)
+    local scrolling, oldCanvasPosition = bringintoviewtemporarily(track)
 
-    if right <= left then
-        return
-    end
-
-    local bestX = nil
-    local bestValue = current
-    local bestDistance = current and math.abs(current - wanted) or math.huge
-
-    local function remember(x, value)
-        if value == nil then return end
-
-        local distance = math.abs(value - wanted)
-        if distance < bestDistance then
-            bestDistance = distance
-            bestValue = value
-            bestX = x
-        end
-    end
-
-    setsliderpoint(slider, left)
-    local leftValue = waitforvalue(label, touchmode and 0.16 or 0.10)
-    remember(left, leftValue)
-
-    if leftValue == wanted then
-        return
-    end
-
-    setsliderpoint(slider, right)
-    local rightValue = waitforvalue(label, touchmode and 0.16 or 0.10)
-    remember(right, rightValue)
-
-    if rightValue == wanted then
-        return
-    end
-
-    if leftValue == nil or rightValue == nil or leftValue == rightValue then
-        if bestX then
-            setsliderpoint(slider, bestX)
-        end
-        return
-    end
-
-    local ascending = rightValue > leftValue
-    local minimum = math.min(leftValue, rightValue)
-    local maximum = math.max(leftValue, rightValue)
-    local clampedWanted = math.clamp(wanted, minimum, maximum)
-
-    local ratio
-    if ascending then
-        ratio = (clampedWanted - leftValue) / (rightValue - leftValue)
-    else
-        ratio = (leftValue - clampedWanted) / (leftValue - rightValue)
-    end
-
-    ratio = math.clamp(ratio, 0, 1)
-
-    local lowX = left
-    local highX = right
-    local lowValue = leftValue
-    local highValue = rightValue
-    local targetX = left + ((right - left) * ratio)
-
-    for _ = 1, 5 do
-        targetX = math.clamp(math.floor(targetX + 0.5), lowX, highX)
-
-        setsliderpoint(slider, targetX)
-        local value = waitforvalue(label, touchmode and 0.15 or 0.09)
-        remember(targetX, value)
-
-        if value == nil then
-            break
-        end
-
-        if value == wanted then
+    local ok = pcall(function()
+        local currentValue = readslidernumber(label)
+        if currentValue == wanted then
             return
         end
 
-        if ascending then
-            if value < wanted then
-                lowX = math.min(targetX + 1, highX)
-                lowValue = value
-            else
-                highX = math.max(targetX - 1, lowX)
-                highValue = value
+        local knob = findsliderknob(track, root)
+        local minimum, maximum = getsliderrange(prefix, root, track)
+
+        if maximum <= minimum then
+            return
+        end
+
+        local knobRadius = knob and math.max(2, knob.AbsoluteSize.X / 2) or 3
+        local left = track.AbsolutePosition.X + knobRadius
+        local right = track.AbsolutePosition.X + track.AbsoluteSize.X - knobRadius
+        local y = track.AbsolutePosition.Y + (track.AbsoluteSize.Y / 2)
+
+        if right <= left then
+            return
+        end
+
+        local usableWidth = right - left
+        local wantedRatio = math.clamp((wanted - minimum) / (maximum - minimum), 0, 1)
+        local targetX = left + (usableWidth * wantedRatio)
+        local currentRatio = currentValue and math.clamp((currentValue - minimum) / (maximum - minimum), 0, 1) or 0.5
+        local startX = knob and (knob.AbsolutePosition.X + knob.AbsoluteSize.X / 2)
+            or (left + usableWidth * currentRatio)
+
+        local bestDistance = currentValue and math.abs(currentValue - wanted) or math.huge
+        local lastValue = currentValue
+        local lastX = startX
+
+        for _ = 1, 3 do
+            targetX = math.clamp(targetX, left, right)
+
+            if math.abs(targetX - lastX) < 1 then
+                targetX = math.clamp(targetX + (wanted > (lastValue or wanted) and 1 or -1), left, right)
             end
-        else
-            if value > wanted then
-                lowX = math.min(targetX + 1, highX)
-                lowValue = value
-            else
-                highX = math.max(targetX - 1, lowX)
-                highValue = value
+
+            local dragged = dragslideronce(track, lastX, y, targetX, y)
+            if not dragged then
+                break
             end
-        end
 
-        if lowX >= highX or lowValue == highValue then
-            break
-        end
+            local value = waitforvaluechange(label, lastValue, touchmode and 0.16 or 0.10)
+            if value == nil then
+                break
+            end
 
-        local nextRatio
-        if ascending then
-            nextRatio = (wanted - lowValue) / (highValue - lowValue)
-        else
-            nextRatio = (lowValue - wanted) / (lowValue - highValue)
-        end
+            local distance = math.abs(value - wanted)
+            if distance < bestDistance then
+                bestDistance = distance
+            elseif value == lastValue then
+                break
+            end
 
-        if nextRatio ~= nextRatio or nextRatio == math.huge or nextRatio == -math.huge then
-            targetX = (lowX + highX) / 2
-        else
-            targetX = lowX + ((highX - lowX) * math.clamp(nextRatio, 0, 1))
-        end
-    end
+            if value == wanted then
+                break
+            end
 
-    if bestX and bestValue ~= wanted then
-        setsliderpoint(slider, bestX)
-        waitforvalue(label, touchmode and 0.12 or 0.07)
+            local pixelsPerValue = usableWidth / (maximum - minimum)
+            local correction = (wanted - value) * pixelsPerValue
+
+            if math.abs(correction) < 1 then
+                correction = wanted > value and 1 or -1
+            end
+
+            lastValue = value
+            lastX = targetX
+            targetX = targetX + correction
+        end
+    end)
+
+    restorescroll(scrolling, oldCanvasPosition)
+
+    if not ok then
+        releasemouse(0, 0)
     end
 end
 
@@ -1672,42 +1871,42 @@ local cntrrange = getcfgnum("Auto Counter Range", 4)
 local dlyval = getcfgnum("Click Delay", 16)
 
 if premium_mode then
-    setsliderexact(
+    setsliderdirect(
         "Auto Block Range",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
         blkrange
     )
 
-    setsliderexact(
+    setsliderdirect(
         "Auto Counter Range",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
         cntrrange
     )
 
-    setsliderexact(
+    setsliderdirect(
         "Click Delay",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
         dlyval
     )
 else
-    setsliderexact(
+    setsliderdirect(
         "Auto Block Range",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
         blkrange
     )
 
-    setsliderexact(
+    setsliderdirect(
         "Auto Counter Range",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
         cntrrange
     )
 
-    setsliderexact(
+    setsliderdirect(
         "Click Delay",
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].Frame end,
         function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].TextLabel end,
