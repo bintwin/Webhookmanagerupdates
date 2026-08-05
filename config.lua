@@ -1033,39 +1033,41 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
     task.wait(0.06)
 
     local currentValue = readslidernumber(label)
-    local attempts = 0
-    local step = math.max(4, math.floor(slider.AbsoluteSize.X / 15))
-    local lastDir = 0
+    if currentValue == wantnum or tostring(label.Text) == wanttxt then
+        pcall(function() endinput(x) end)
+        return
+    end
 
-    while attempts < 100 do
-        currentValue = readslidernumber(label)
-        if currentValue == wantnum or tostring(label.Text) == wanttxt then
-            break
-        end
+    local direction = 1
+    if currentValue ~= nil then
+        direction = currentValue > wantnum and -1 or 1
+    end
 
-        local direction = 1
-        if currentValue ~= nil then
-            direction = currentValue > wantnum and -1 or 1
-        end
+    local nudge = math.max(4, math.floor(slider.AbsoluteSize.X / 10))
+    local testX = math.clamp(x + (nudge * direction), left, right)
 
-        if lastDir ~= 0 and direction ~= lastDir then
-            step = math.max(1, math.floor(step / 1.5))
-            task.wait(0.01)
-        end
-        lastDir = direction
+    if testX == x then
+        direction = -direction
+        testX = math.clamp(x + (nudge * direction), left, right)
+    end
 
-        local nextX = math.clamp(x + (step * direction), left, right)
+    pcall(function() updateinput(testX) end)
+    task.wait(0.2) -- Wait for UI Tweens to fully finish before reading value
 
-        if nextX == x then
-            if step <= 1 then break end
-            step = 1
-        end
+    local testVal = readslidernumber(label)
+    if testVal == wantnum or tostring(label.Text) == wanttxt then
+        x = testX
+    elseif testVal and currentValue and testVal ~= currentValue then
+        local pixelsPerUnit = (testX - x) / (testVal - currentValue)
+        local diff = wantnum - testVal
+        local jumpX = math.floor(testX + (diff * pixelsPerUnit))
+        jumpX = math.clamp(jumpX, left, right)
 
-        x = nextX
-        pcall(function() updateinput(x) end)
-        task.wait(touchmode and 0.025 or 0.015)
-
-        attempts = attempts + 1
+        pcall(function() updateinput(jumpX) end)
+        task.wait(0.2)
+        x = jumpX
+    else
+        x = testX
     end
 
     pcall(function() endinput(x) end)
