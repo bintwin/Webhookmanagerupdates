@@ -1043,46 +1043,16 @@ local blkrange = getcfgnum("Auto Block Range", 19)
 local cntrrange = getcfgnum("Auto Counter Range", 4)
 local dlyval = getcfgnum("Click Delay", 16)
 
-if premium_mode then
-    fastsliderbylabel(
-        "Auto Block Range",
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame.Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
-        blkrange
-    )
+fastsliderbylabel("Auto Block Range", nil, nil, blkrange)
+fastsliderbylabel("Auto Counter Range", nil, nil, cntrrange)
+fastsliderbylabel("Click Delay", nil, nil, dlyval)
 
-    fastsliderbylabel(
-        "Auto Counter Range",
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
-        cntrrange
-    )
-
-    fastsliderbylabel(
-        "Click Delay",
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[19].TextLabel end,
-        dlyval
-    )
-else
-    fastsliderbylabel(
-        "Auto Block Range",
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4].Frame.TextLabel end,
-        blkrange
-    )
-
-    fastsliderbylabel(
-        "Auto Counter Range",
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[10].TextLabel end,
-        cntrrange
-    )
-
-    fastsliderbylabel(
-        "Click Delay",
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].Frame end,
-        function() return guis.ScreenGui.Frame.Frame:GetChildren()[4]:GetChildren()[15].TextLabel end,
-        dlyval
-    )
+if enablecustomconfig and parsedcfg then
+    for cfgk, cfgv in pairs(parsedcfg) do
+        local normk = normalizetext(cfgk)
+        if type(cfgv) == "number" and not alreadyhandled[normk] then
+            fastsliderbylabel(tostring(cfgk), nil, nil, cfgv)
+            alreadyhandled[normk] = true
+        end
+    end
 end
