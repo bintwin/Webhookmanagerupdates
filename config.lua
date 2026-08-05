@@ -168,83 +168,55 @@ local function clickybtn(b)
     b = getclicktarget(b)
     if not b then return end
 
-    local function fireconnections(signal)
-        if type(getconnections) ~= "function" or not signal then return false end
-
-        local connections = nil
-        pcall(function() connections = getconnections(signal) end)
-        if type(connections) ~= "table" or #connections == 0 then return false end
-
-        for _, connection in pairs(connections) do
-            pcall(function() connection:Fire() end)
-        end
-
-        return true
-    end
-
     local worked = false
 
-    if touchmode then
-        if b:IsA("GuiButton") then
-            worked = fireconnections(b.Activated)
-            if not worked then worked = fireconnections(b.MouseButton1Click) end
-        end
-
-        if not worked then
-            worked = fireconnections(b.TouchTap)
-        end
-
-        if not worked and type(firesignal) == "function" then
-            pcall(function()
-                if b:IsA("GuiButton") then
-                    firesignal(b.Activated)
-                else
-                    firesignal(b.TouchTap)
-                end
-                worked = true
-            end)
-        end
+    -- Prioritize firesignal (100% silent, works on PC without crashing)
+    if type(firesignal) == "function" then
+        pcall(function()
+            if b:IsA("GuiButton") then
+                firesignal(b.MouseButton1Click)
+                firesignal(b.MouseButton1Down)
+                firesignal(b.MouseButton1Up)
+                firesignal(b.Activated)
+            else
+                firesignal(b.TouchTap)
+            end
+            worked = true
+        end)
     end
 
     if worked then return end
 
-    local sf = b:FindFirstAncestorOfClass("ScrollingFrame")
-    if sf then
-        local maxY = sf.AbsoluteCanvasSize.Y - sf.AbsoluteWindowSize.Y
-        if maxY > 0 then
-            local targetY = b.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - (sf.AbsoluteWindowSize.Y / 2)
-            sf.CanvasPosition = Vector2.new(sf.CanvasPosition.X, math.clamp(targetY, 0, maxY))
-            task.wait(0.1)
+    -- Safe getconnections fallback (only for Mobile, avoids PC anti-cheat crashes)
+    if touchmode and type(getconnections) == "function" then
+        local function fireconn(sig)
+            if not sig then return false end
+            local cons = nil
+            pcall(function() cons = getconnections(sig) end)
+            if type(cons) ~= "table" or #cons == 0 then return false end
+            for _, c in pairs(cons) do
+                pcall(function() c:Fire() end)
+            end
+            return true
         end
+
+        pcall(function()
+            if b:IsA("GuiButton") then
+                worked = fireconn(b.Activated)
+                if not worked then worked = fireconn(b.MouseButton1Click) end
+            else
+                worked = fireconn(b.TouchTap)
+            end
+        end)
     end
 
+    if worked then return end
+
+    -- Last resort: VirtualUser (Silent click on center of UI)
     local x, y = getguicenter(b)
-    if not x or not y then return end
-
-    local screenX, screenY = gettouchcoords(b, x, y)
-
-    if touchmode then
+    if x and y then
         pcall(function()
-            vman:SendTouchEvent(0, 0, screenX, screenY)
-            task.wait(0.04)
-            vman:SendTouchEvent(0, 2, screenX, screenY)
-            worked = true
-        end)
-    end
-
-    if not worked then
-        pcall(function()
-            vman:SendMouseMoveEvent(screenX, screenY, game)
-            vman:SendMouseButtonEvent(screenX, screenY, 0, true, game, 1)
-            task.wait(0.04)
-            vman:SendMouseButtonEvent(screenX, screenY, 0, false, game, 1)
-            worked = true
-        end)
-    end
-
-    if not worked then
-        pcall(function()
-            game:GetService("VirtualUser"):ClickButton1(Vector2.new(screenX, screenY))
+            game:GetService("VirtualUser"):ClickButton1(Vector2.new(x, y))
         end)
     end
 end
@@ -1005,9 +977,11 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function begininput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
-        pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
-        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-        pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
+        if touchmode then
+            pcall(function() vman:SendTouchEvent(touchId, 0, touchX, touchY) end)
+            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+            pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, true, game, 1) end)
+        end
         pcall(function() vu:Button1Down(Vector2.new(px, vim_y)) end)
         
         firesig(slider, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, vim_y)
@@ -1020,8 +994,10 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function updateinput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
-        pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
-        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+        if touchmode then
+            pcall(function() vman:SendTouchEvent(touchId, 1, touchX, touchY) end)
+            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+        end
         pcall(function() vu:MoveMouse(Vector2.new(px, vim_y)) end)
         
         firesig(slider, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, vim_y)
@@ -1034,9 +1010,11 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function endinput(px)
         local touchX, touchY = gettouchcoords(slider, px, y)
-        pcall(function() vman:SendTouchEvent(touchId, 2, touchX, touchY) end)
-        pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
-        pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
+        if touchmode then
+            pcall(function() vman:SendTouchEvent(touchId, 2, touchX, touchY) end)
+            pcall(function() vman:SendMouseMoveEvent(px, vim_y, game) end)
+            pcall(function() vman:SendMouseButtonEvent(px, vim_y, 0, false, game, 1) end)
+        end
         pcall(function() vu:Button1Up(Vector2.new(px, vim_y)) end)
         
         firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, vim_y)
