@@ -1,7 +1,3 @@
--- Exact text config loader
--- Premium and free use the same search logic
--- No numbered GUI paths are used
-
 local env = _G
 pcall(function()
     if type(getgenv) == "function" then
