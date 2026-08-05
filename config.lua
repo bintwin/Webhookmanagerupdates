@@ -262,222 +262,50 @@ local function isguivisible(obj)
     return true
 end
 
-local function getrowbuttonfromlabel(label)
-    if not label or not label:IsA("GuiObject") then return nil end
-
-    local current = label
-    while current and current ~= game do
-        if current:IsA("GuiButton") then
-            return current
-        end
-        current = current.Parent
-    end
-
-    local labelCenterY = label.AbsolutePosition.Y + (label.AbsoluteSize.Y / 2)
-    local labelRight = label.AbsolutePosition.X + label.AbsoluteSize.X
-    local ancestor = label.Parent
-    local depth = 0
-    local best = nil
-    local bestScore = -math.huge
-
-    while ancestor and ancestor ~= game and depth < 5 do
-        if ancestor:IsA("GuiObject") then
-            local ancestorTop = ancestor.AbsolutePosition.Y
-            local ancestorBottom = ancestorTop + ancestor.AbsoluteSize.Y
-
-            for _, candidate in pairs(ancestor:GetDescendants()) do
-                if candidate:IsA("GuiButton") and isguivisible(candidate) then
-                    local centerY = candidate.AbsolutePosition.Y + (candidate.AbsoluteSize.Y / 2)
-                    local verticalDistance = math.abs(centerY - labelCenterY)
-
-                    if centerY >= ancestorTop - 2 and centerY <= ancestorBottom + 2 then
-                        local score = 0
-
-                        if label:IsDescendantOf(candidate) then score = score + 1000 end
-                        score = score - verticalDistance * 4
-
-                        if candidate.AbsolutePosition.X >= labelRight - 8 then
-                            score = score + 70
-                        end
-
-                        if candidate.Parent == label.Parent then
-                            score = score + 45
-                        end
-
-                        if candidate:IsA("TextButton") and sametext(candidate.Text, label.Text) then
-                            score = score + 500
-                        end
-
-                        if score > bestScore then
-                            best = candidate
-                            bestScore = score
-                        end
-                    end
-                end
-            end
-        end
-
-        if best and bestScore >= 400 then
-            return best
-        end
-
-        ancestor = ancestor.Parent
-        depth = depth + 1
-    end
-
-    return best or label.Parent
-end
-
-local function objecthastext(obj, wanted)
-    if not obj then return false end
-
-    if (obj:IsA("TextButton") or obj:IsA("TextLabel") or obj:IsA("TextBox"))
-        and sametext(obj.Text, wanted) then
-        return true
-    end
-
-    if obj:IsA("GuiButton") or obj:IsA("GuiObject") then
-        for _, child in pairs(obj:GetDescendants()) do
-            if (child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox"))
-                and sametext(child.Text, wanted) then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
 local function findcontrolbytext(wanted)
-    local bestButton = nil
-    local bestButtonScore = -math.huge
-    local matchingLabels = {}
-
     for _, obj in pairs(guis:GetDescendants()) do
-        if isguivisible(obj) then
-            if obj:IsA("GuiButton") then
-                local score = -math.huge
-
-                if (obj:IsA("TextButton") or obj:IsA("TextBox")) and sametext(obj.Text, wanted) then
-                    score = 1200
-                elseif objecthastext(obj, wanted) then
-                    score = 1050
-                elseif sametext(obj.Name, wanted) then
-                    score = 700
-                end
-
-                if score > -math.huge then
-                    if obj.Active then score = score + 20 end
-                    if obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.Y > 0 then score = score + 10 end
-
-                    if score > bestButtonScore then
-                        bestButton = obj
-                        bestButtonScore = score
-                    end
-                end
-            elseif obj:IsA("TextLabel") and sametext(obj.Text, wanted) then
-                table.insert(matchingLabels, obj)
-            end
-        end
-    end
-
-    if bestButton then
-        return bestButton
-    end
-
-    local bestRowButton = nil
-    local bestRowScore = -math.huge
-
-    for _, label in pairs(matchingLabels) do
-        local button = getrowbuttonfromlabel(label)
-        if button then
-            local score = 0
-
-            if button:IsA("GuiButton") then score = score + 300 end
-            if label:IsDescendantOf(button) then score = score + 500 end
-
-            local labelY = label.AbsolutePosition.Y + (label.AbsoluteSize.Y / 2)
-            local buttonY = button.AbsolutePosition.Y + (button.AbsoluteSize.Y / 2)
-            score = score - math.abs(labelY - buttonY) * 4
-
-            if button.AbsolutePosition.X >= label.AbsolutePosition.X + label.AbsoluteSize.X - 8 then
-                score = score + 80
-            end
-
-            if score > bestRowScore then
-                bestRowButton = button
-                bestRowScore = score
-            end
-        end
-    end
-
-    if bestRowButton then
-        return bestRowButton
-    end
-
-    for _, obj in pairs(guis:GetDescendants()) do
-        if isguivisible(obj) and sametext(obj.Name, wanted) then
-            if obj:IsA("GuiButton") then
+        if obj:IsA("TextButton") and isguivisible(obj) then
+            if sametext(obj.Text, wanted) then
                 return obj
             end
-
-            for _, child in pairs(obj:GetDescendants()) do
-                if child:IsA("GuiButton") and isguivisible(child) then
-                    return child
+            for _, ch in pairs(obj:GetChildren()) do
+                if ch:IsA("TextLabel") and sametext(ch.Text, wanted) then
+                    return obj
                 end
             end
-
+        end
+    end
+    for _, obj in pairs(guis:GetDescendants()) do
+        if isguivisible(obj) and sametext(obj.Name, wanted) then
+            if obj:IsA("TextButton") then
+                return obj
+            end
+            for _, ch in pairs(obj:GetDescendants()) do
+                if ch:IsA("TextButton") and isguivisible(ch) then
+                    return ch
+                end
+            end
             if obj:IsA("GuiObject") then
                 return obj
             end
         end
     end
-
     return nil
 end
 
 local function findcontrolbyprefix(wanted)
-    local bestButton = nil
-    local bestButtonScore = -math.huge
-    local labels = {}
-
     for _, obj in pairs(guis:GetDescendants()) do
-        if isguivisible(obj) then
-            if obj:IsA("GuiButton") then
-                local matched = false
-                local score = -math.huge
-
-                if obj:IsA("TextButton") and textstartswith(obj.Text, wanted) then
-                    matched = true
-                    score = 1100
-                else
-                    for _, child in pairs(obj:GetDescendants()) do
-                        if (child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox"))
-                            and textstartswith(child.Text, wanted) then
-                            matched = true
-                            score = 1000
-                            break
-                        end
-                    end
+        if obj:IsA("TextButton") and isguivisible(obj) then
+            if obj.Text ~= "" and textstartswith(obj.Text, wanted) then
+                return obj
+            end
+            for _, ch in pairs(obj:GetChildren()) do
+                if ch:IsA("TextLabel") and textstartswith(ch.Text, wanted) then
+                    return obj
                 end
-
-                if matched and score > bestButtonScore then
-                    bestButton = obj
-                    bestButtonScore = score
-                end
-            elseif obj:IsA("TextLabel") and textstartswith(obj.Text, wanted) then
-                table.insert(labels, obj)
             end
         end
     end
-
-    if bestButton then return bestButton end
-
-    for _, label in pairs(labels) do
-        local button = getrowbuttonfromlabel(label)
-        if button then return button end
-    end
-
     return nil
 end
 
@@ -502,39 +330,19 @@ local function findtabbutton(tname)
     pcall(function()
         sidebar = guis.ScreenGui.Frame.ScrollingFrame
     end)
-
     if not sidebar then return nil end
-
-    local best = nil
-    local bestScore = -math.huge
-
     for _, obj in pairs(sidebar:GetDescendants()) do
-        if obj:IsA("GuiButton") and isguivisible(obj) then
-            local score = -math.huge
-
-            if obj:IsA("TextButton") and sametext(obj.Text, tname) then
-                score = 1000
-            elseif objecthastext(obj, tname) then
-                score = 900
-            elseif sametext(obj.Name, tname) then
-                score = 700
+        if obj:IsA("TextButton") and isguivisible(obj) then
+            if sametext(obj.Text, tname) then
+                return obj
             end
-
-            if score > bestScore then
-                best = obj
-                bestScore = score
+            for _, ch in pairs(obj:GetChildren()) do
+                if ch:IsA("TextLabel") and sametext(ch.Text, tname) then
+                    return obj
+                end
             end
         end
     end
-
-    if best then return best end
-
-    for _, obj in pairs(sidebar:GetDescendants()) do
-        if obj:IsA("TextLabel") and isguivisible(obj) and sametext(obj.Text, tname) then
-            return getrowbuttonfromlabel(obj)
-        end
-    end
-
     return nil
 end
 
@@ -1000,130 +808,41 @@ local function readslidernumber(label)
     return value and tonumber(value) or nil
 end
 
+
 local function findsliderlabel(prefix)
     local wanted = normalizetext(prefix)
-    local best = nil
-    local bestScore = -math.huge
-
     for _, obj in pairs(guis:GetDescendants()) do
-        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and isguivisible(obj) then
+        if obj:IsA("TextLabel") and isguivisible(obj) then
             local text = normalizetext(obj.Text)
-            local matches = text == wanted
+            if text == wanted
                 or string.sub(text, 1, #wanted + 1) == wanted .. ":"
-                or string.sub(text, 1, #wanted + 1) == wanted .. " "
-
-            if matches then
-                local score = 0
-                if obj:IsA("TextLabel") then score = score + 30 end
-                if string.find(text, ":", 1, true) then score = score + 20 end
-                if string.match(text, "[-+]?%d+%.?%d*") then score = score + 20 end
-                if obj.AbsoluteSize.X > 80 then score = score + 10 end
-
-                if score > bestScore then
-                    best = obj
-                    bestScore = score
+                or string.sub(text, 1, #wanted + 1) == wanted .. " " then
+                if obj.Parent and obj.Parent:IsA("Frame") then
+                    return obj
                 end
             end
         end
     end
-
-    return best
+    return nil
 end
 
 local function getslidertrackfromlabel(label, fallbackfunc)
-    if not label or not label:IsA("GuiObject") then
-        local fallback = nil
-        pcall(function() fallback = fallbackfunc and fallbackfunc() end)
-        return fallback
+    if not label or not label.Parent then
+        local fb = nil
+        pcall(function() fb = fallbackfunc and fallbackfunc() end)
+        return fb
     end
-
-    local labelLeft = label.AbsolutePosition.X
-    local labelRight = labelLeft + label.AbsoluteSize.X
-    local labelBottom = label.AbsolutePosition.Y + label.AbsoluteSize.Y
-    local ancestor = label.Parent
-    local depth = 0
-
-    while ancestor and ancestor ~= game and depth < 5 do
-        if ancestor:IsA("GuiObject") then
-            local rowLeft = ancestor.AbsolutePosition.X
-            local rowRight = rowLeft + ancestor.AbsoluteSize.X
-            local rowBottom = ancestor.AbsolutePosition.Y + ancestor.AbsoluteSize.Y
-            local best = nil
-            local bestScore = -math.huge
-
-            for _, obj in pairs(ancestor:GetDescendants()) do
-                if obj:IsA("GuiObject")
-                    and obj ~= label
-                    and isguivisible(obj)
-                    and not obj:IsA("TextLabel")
-                    and not obj:IsA("TextButton") then
-
-                    local width = obj.AbsoluteSize.X
-                    local height = obj.AbsoluteSize.Y
-                    local left = obj.AbsolutePosition.X
-                    local right = left + width
-                    local top = obj.AbsolutePosition.Y
-                    local centerY = top + (height / 2)
-                    local overlap = math.min(right, labelRight) - math.max(left, labelLeft)
-                    local belowDistance = centerY - labelBottom
-
-                    local insideRow = left >= rowLeft - 4
-                        and right <= rowRight + 4
-                        and centerY <= rowBottom + 4
-
-                    if insideRow
-                        and width >= 55
-                        and height >= 2
-                        and height <= 32
-                        and overlap >= 20
-                        and belowDistance >= -8
-                        and belowDistance <= 70 then
-
-                        local name = string.lower(obj.Name)
-                        local score = width / 5
-                        score = score - math.abs(belowDistance - 16) * 2
-                        score = score + math.max(0, 28 - height)
-
-                        if string.find(name, "slider", 1, true) then score = score + 140 end
-                        if string.find(name, "track", 1, true) then score = score + 120 end
-                        if string.find(name, "bar", 1, true) then score = score + 90 end
-                        if string.find(name, "fill", 1, true) then score = score - 35 end
-                        if string.find(name, "knob", 1, true) then score = score - 50 end
-                        if string.find(name, "thumb", 1, true) then score = score - 50 end
-                        if obj:IsA("ImageButton") then score = score + 20 end
-                        if obj.Active then score = score + 15 end
-
-                        local hasFill = false
-                        for _, child in pairs(obj:GetChildren()) do
-                            if child:IsA("GuiObject")
-                                and child.AbsoluteSize.X > 0
-                                and child.AbsoluteSize.X < width then
-                                hasFill = true
-                                break
-                            end
-                        end
-                        if hasFill then score = score + 35 end
-
-                        if score > bestScore then
-                            best = obj
-                            bestScore = score
-                        end
-                    end
-                end
-            end
-
-            if best then
-                return best
+    local prnt = label.Parent
+    if prnt:IsA("Frame") then
+        for _, sib in pairs(prnt:GetChildren()) do
+            if sib:IsA("Frame") and sib ~= label then
+                return sib
             end
         end
-
-        ancestor = ancestor.Parent
-        depth = depth + 1
     end
-
-    local fallback = nil
-    pcall(function() fallback = fallbackfunc and fallbackfunc() end)
-    return fallback
+    local fb = nil
+    pcall(function() fb = fallbackfunc and fallbackfunc() end)
+    return fb
 end
 
 local fastslider
