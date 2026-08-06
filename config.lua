@@ -217,8 +217,10 @@ local function clickybtn(b)
     if x and y then
         pcall(function()
             game:GetService("VirtualUser"):ClickButton1(Vector2.new(x, y))
-            game:GetService("VirtualUser"):MoveMouse(Vector2.new(0, 0))
-            if vman then vman:SendMouseMoveEvent(0, 0, game) end
+            if not touchmode then
+                game:GetService("VirtualUser"):MoveMouse(Vector2.new(0, 0))
+                if vman then vman:SendMouseMoveEvent(0, 0, game) end
+            end
         end)
     end
 end
@@ -969,9 +971,11 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function begininput(px)
         pcall(function() vman:SendTouchEvent(touchId, 0, px, y) end)
-        pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
-        pcall(function() vman:SendMouseButtonEvent(px, y, 0, true, game, 1) end)
-        pcall(function() vu:Button1Down(Vector2.new(px, y)) end)
+        if not touchmode then
+            pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
+            pcall(function() vman:SendMouseButtonEvent(px, y, 0, true, game, 1) end)
+            pcall(function() vu:Button1Down(Vector2.new(px, y)) end)
+        end
         
         firesig(slider, "InputBegan", Enum.UserInputType.MouseButton1, Enum.UserInputState.Begin, px, y)
         firesig(slider, "InputBegan", Enum.UserInputType.Touch, Enum.UserInputState.Begin, px, y)
@@ -983,8 +987,10 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function updateinput(px)
         pcall(function() vman:SendTouchEvent(touchId, 1, px, y) end)
-        pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
-        pcall(function() vu:MoveMouse(Vector2.new(px, y)) end)
+        if not touchmode then
+            pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
+            pcall(function() vu:MoveMouse(Vector2.new(px, y)) end)
+        end
         
         firesig(slider, "InputChanged", Enum.UserInputType.MouseButton1, Enum.UserInputState.Change, px, y)
         firesig(slider, "InputChanged", Enum.UserInputType.Touch, Enum.UserInputState.Change, px, y)
@@ -996,12 +1002,14 @@ fastslider = function(frmfunc, lblfunc, wanttxt, wantnum)
 
     local function endinput(px)
         pcall(function() vman:SendTouchEvent(touchId, 2, px, y) end)
-        pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
-        pcall(function() vman:SendMouseButtonEvent(px, y, 0, false, game, 1) end)
-        pcall(function() vu:Button1Up(Vector2.new(px, y)) end)
-        
-        pcall(function() vman:SendMouseMoveEvent(0, 0, game) end)
-        pcall(function() vu:MoveMouse(Vector2.new(0, 0)) end)
+        if not touchmode then
+            pcall(function() vman:SendMouseMoveEvent(px, y, game) end)
+            pcall(function() vman:SendMouseButtonEvent(px, y, 0, false, game, 1) end)
+            pcall(function() vu:Button1Up(Vector2.new(px, y)) end)
+            
+            pcall(function() vman:SendMouseMoveEvent(0, 0, game) end)
+            pcall(function() vu:MoveMouse(Vector2.new(0, 0)) end)
+        end
         
         firesig(slider, "InputEnded", Enum.UserInputType.MouseButton1, Enum.UserInputState.End, px, y)
         firesig(slider, "InputEnded", Enum.UserInputType.Touch, Enum.UserInputState.End, px, y)
